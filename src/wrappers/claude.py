@@ -3,11 +3,10 @@
 import asyncio
 import json
 import os
-import re
 import time
 from pathlib import Path
 
-from .base import ToolWrapper, Query, QueryResult, SearchMode, SearchOp
+from .base import ToolWrapper, Query, QueryResult, SearchMode, SearchOp, _extract_files
 
 
 def _clean_env() -> dict[str, str]:
@@ -184,17 +183,3 @@ def _parse_tool_uses(messages: list) -> tuple[list[SearchOp], list[str], int]:
     return ops, list(set(files)), len(ops)
 
 
-def _extract_files(text: str) -> list[str]:
-    """Extract file paths from answer text."""
-    files = set()
-    # Match FILES: line
-    m = re.search(r"FILES:\s*\[?([^\]\n]+)\]?", text)
-    if m:
-        for f in m.group(1).split(","):
-            f = f.strip().strip("'\"")
-            if f and "/" in f:
-                files.add(f)
-    # Match common path patterns
-    for m in re.finditer(r"(?:src|lib|app|pages|components)/[\w/.-]+\.\w+", text):
-        files.add(m.group(0))
-    return list(files)

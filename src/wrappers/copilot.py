@@ -2,11 +2,10 @@
 
 import asyncio
 import json
-import re
 import time
 from pathlib import Path
 
-from .base import ToolWrapper, Query, QueryResult, SearchMode, SearchOp, _needs_shell, _resolve_cmd
+from .base import ToolWrapper, Query, QueryResult, SearchMode, SearchOp, _needs_shell, _resolve_cmd, _extract_files
 
 
 class CopilotWrapper(ToolWrapper):
@@ -94,14 +93,3 @@ class CopilotWrapper(ToolWrapper):
         return result
 
 
-def _extract_files(text: str) -> list[str]:
-    files = set()
-    m = re.search(r"FILES:\s*\[?([^\]\n]+)\]?", text)
-    if m:
-        for f in m.group(1).split(","):
-            f = f.strip().strip("'\"")
-            if f and "/" in f:
-                files.add(f)
-    for m in re.finditer(r"(?:src|lib|app|pages|components)/[\w/.-]+\.\w+", text):
-        files.add(m.group(0))
-    return list(files)

@@ -10,7 +10,6 @@ dist/
 build/
 
 # Project-specific
-claude.md
 plan.md
 data/*.faiss
 data/*.db
@@ -19,7 +18,7 @@ results/*.html
 results/*.png
 diffs/*.diff
 .env
-benchmark/
+/benchmark/
 
 # IDE
 .vscode/

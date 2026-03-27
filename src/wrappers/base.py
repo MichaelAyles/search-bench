@@ -53,6 +53,7 @@ class QueryResult:
     rounds: int = 0
     raw_transcript: str = ""
     error: str | None = None
+    run_meta: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -76,6 +77,7 @@ class QueryResult:
             "time_thinking": self.time_thinking,
             "rounds": self.rounds,
             "error": self.error,
+            "run_meta": self.run_meta,
         }
 
 
@@ -111,6 +113,21 @@ Instructions:
 Format your response as:
 FILES: [comma-separated list of file paths]
 ANSWER: [your detailed answer]"""
+
+
+def _extract_files(text: str) -> list[str]:
+    """Extract file paths mentioned in answer text (FILES: line + path patterns)."""
+    import re
+    files = set()
+    m = re.search(r"FILES:\s*\[?([^\]\n]+)\]?", text)
+    if m:
+        for f in m.group(1).split(","):
+            f = f.strip().strip("'\"")
+            if f and "/" in f:
+                files.add(f)
+    for m in re.finditer(r"(?:src|lib|app|pages|components)/[\w/.-]+\.\w+", text):
+        files.add(m.group(0))
+    return list(files)
 
 
 def _needs_shell() -> bool:
