@@ -1,0 +1,542 @@
+[
+  {
+    "id": "exact_01",
+    "text": "Where is the KiCad S-expression parser defined?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/kicad-parser.ts"],
+    "keywords": ["parse", "kicad", "s-expression", "sexp"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_02",
+    "text": "Find the function that handles schematic file uploads to R2",
+    "category": "exact_symbol",
+    "ground_truth": ["src/app/api/upload-schematic/route.ts", "src/lib/r2-schematic.ts"],
+    "keywords": ["upload", "R2", "schematic"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_03",
+    "text": "Where is the search_circuits_weighted RPC function called?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/search.ts"],
+    "keywords": ["search_circuits_weighted", "rpc", "supabase"],
+    "optional_files": ["src/app/api/search/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_04",
+    "text": "Find the rate limiter implementation",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/rate-limit.ts"],
+    "keywords": ["RateLimiter", "rate", "limit", "window"],
+    "optional_files": ["src/middleware.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_05",
+    "text": "Where is the useAuth hook defined?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/hooks/useAuth.ts"],
+    "keywords": ["useAuth", "signIn", "signOut", "session"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_06",
+    "text": "Find the slugify utility function",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/utils.ts"],
+    "keywords": ["slugify", "slug"],
+    "optional_files": ["src/lib/batch-import/slug-generator.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_07",
+    "text": "Where is the thumbnail capture function?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/thumbnail.ts"],
+    "keywords": ["captureThumbnail", "thumbnail", "canvas"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_08",
+    "text": "Find the Supabase admin client that bypasses RLS",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/supabase/admin.ts"],
+    "keywords": ["admin", "service_role", "supabase"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_09",
+    "text": "Where is the circuit flagging/reporting logic?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/flags.ts"],
+    "keywords": ["flag", "report"],
+    "optional_files": ["src/components/FlagCircuitModal.tsx", "src/types/flags.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_10",
+    "text": "Find the batch import validator",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/batch-import/validator.ts"],
+    "keywords": ["validate", "batch", "import"],
+    "optional_files": ["src/lib/batch-import/transformer.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_11",
+    "text": "Where is the KiCanvas viewer component?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/components/KiCanvas.tsx"],
+    "keywords": ["KiCanvas", "viewer", "schematic"],
+    "optional_files": ["src/components/SchematicViewer.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_12",
+    "text": "Find the comment threading logic",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/comments.ts"],
+    "keywords": ["comment", "thread", "parent", "reply"],
+    "optional_files": ["src/components/CommentList.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "exact_13",
+    "text": "Where is the SearchAutocomplete component?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/components/SearchAutocomplete.tsx"],
+    "keywords": ["SearchAutocomplete", "autocomplete", "search"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_14",
+    "text": "Find the middleware that runs on every request",
+    "category": "exact_symbol",
+    "ground_truth": ["src/middleware.ts"],
+    "keywords": ["middleware", "rate", "auth", "refresh"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_15",
+    "text": "Where are the database types generated from Supabase?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/supabase/types.ts"],
+    "keywords": ["Database", "Tables", "profiles", "circuits"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "concept_01",
+    "text": "How does this project handle caching of schematics?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/r2-schematic.ts", "src/app/api/schematic/[filename]/route.ts"],
+    "keywords": ["cache", "R2", "redirect", "lazy"],
+    "optional_files": ["src/lib/preview-cache.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_02",
+    "text": "What's the error handling strategy in this codebase?",
+    "category": "conceptual",
+    "ground_truth": ["src/app/api/search/route.ts", "src/lib/search.ts"],
+    "keywords": ["error", "catch", "fallback", "try"],
+    "optional_files": ["src/middleware.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_03",
+    "text": "How does authentication work in this app?",
+    "category": "conceptual",
+    "ground_truth": ["src/hooks/useAuth.ts", "src/app/auth/callback/route.ts"],
+    "keywords": ["auth", "OAuth", "GitHub", "session", "supabase"],
+    "optional_files": ["src/middleware.ts", "src/lib/supabase/client.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_04",
+    "text": "How does the full-text search with weighted ranking work?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/search.ts", "src/app/api/search/route.ts"],
+    "keywords": ["search", "weighted", "tsvector", "tags", "title", "description"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "concept_05",
+    "text": "How are KiCad clipboard snippets validated and processed?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/kicad-parser.ts", "src/lib/clipboard-validation.ts"],
+    "keywords": ["clipboard", "snippet", "validate", "s-expression", "wrap"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "concept_06",
+    "text": "How does the theme system work (dark/light mode)?",
+    "category": "conceptual",
+    "ground_truth": ["src/components/ThemeProvider.tsx", "src/components/ThemeToggle.tsx"],
+    "keywords": ["theme", "dark", "light", "next-themes"],
+    "optional_files": ["src/app/layout.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_07",
+    "text": "How does the batch import system work?",
+    "category": "conceptual",
+    "ground_truth": ["scripts/export-and-import.ts", "src/lib/batch-import/validator.ts", "src/lib/batch-import/transformer.ts"],
+    "keywords": ["batch", "import", "GitHub", "scraper", "sqlite"],
+    "optional_files": ["src/lib/batch-import/slug-generator.ts", "src/app/api/admin/batch-import/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_08",
+    "text": "How are thumbnails captured from the KiCanvas viewer?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/thumbnail.ts"],
+    "keywords": ["thumbnail", "canvas", "capture", "html2canvas", "toDataURL"],
+    "optional_files": ["src/app/api/upload-thumbnail/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_09",
+    "text": "How does the comment system handle threading and nesting?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/comments.ts", "src/components/CommentList.tsx"],
+    "keywords": ["comment", "thread", "parent", "nested", "reply"],
+    "optional_files": ["src/components/Comment.tsx", "src/types/comments.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_10",
+    "text": "How does the app detect whether pasted content is a snippet or full schematic?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/kicad-parser.ts"],
+    "keywords": ["snippet", "detect", "kicad_sch", "wrap", "paper"],
+    "optional_files": ["src/lib/clipboard-validation.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_11",
+    "text": "How does Markdown rendering work in this app?",
+    "category": "conceptual",
+    "ground_truth": ["src/components/MarkdownRenderer.tsx", "src/components/MarkdownEditor.tsx"],
+    "keywords": ["markdown", "sanitize", "remark", "rehype"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "concept_12",
+    "text": "How are circuit metadata and components extracted from schematics?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/kicad-parser.ts"],
+    "keywords": ["metadata", "component", "extract", "reference", "value", "footprint"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "concept_13",
+    "text": "How does the circuit copy/clipboard feature work?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/kicad-parser.ts", "src/lib/clipboard-validation.ts"],
+    "keywords": ["copy", "clipboard", "attribution", "snippet"],
+    "optional_files": ["src/components/SchematicViewer.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_14",
+    "text": "How does the preview generation system work?",
+    "category": "conceptual",
+    "ground_truth": ["src/app/api/preview/route.ts", "src/lib/preview-cache.ts"],
+    "keywords": ["preview", "cache", "generate"],
+    "optional_files": ["src/app/api/preview/[filename]/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_15",
+    "text": "How does admin authorization work in the API routes?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/admin.ts", "src/lib/admin-auth.ts"],
+    "keywords": ["admin", "role", "authorize", "api_key"],
+    "optional_files": ["src/app/admin/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_01",
+    "text": "What files are involved in the circuit upload pipeline from paste to stored?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/upload/page.tsx", "src/lib/kicad-parser.ts", "src/lib/r2-schematic.ts", "src/app/api/upload-schematic/route.ts"],
+    "keywords": ["upload", "parse", "R2", "store", "validate"],
+    "optional_files": ["src/lib/thumbnail.ts", "src/app/api/upload-thumbnail/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_02",
+    "text": "Trace the search flow from user input to displayed results",
+    "category": "cross_cutting",
+    "ground_truth": ["src/components/SearchAutocomplete.tsx", "src/app/api/search/route.ts", "src/lib/search.ts", "src/app/search/page.tsx"],
+    "keywords": ["search", "query", "autocomplete", "results", "weighted"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "cross_03",
+    "text": "What files handle the circuit detail view from URL to rendered schematic?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/circuit/[slug]/page.tsx", "src/components/SchematicViewer.tsx", "src/components/KiCanvas.tsx", "src/app/api/schematic/[filename]/route.ts"],
+    "keywords": ["circuit", "slug", "viewer", "KiCanvas", "schematic"],
+    "optional_files": ["src/lib/r2-schematic.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_04",
+    "text": "What's the complete authentication flow from login to authenticated API call?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/login/page.tsx", "src/hooks/useAuth.ts", "src/app/auth/callback/route.ts", "src/middleware.ts", "src/lib/supabase/client.ts"],
+    "keywords": ["login", "OAuth", "callback", "session", "middleware", "cookie"],
+    "optional_files": ["src/lib/supabase/server.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_05",
+    "text": "What files are involved in the batch import pipeline from scraper DB to live circuits?",
+    "category": "cross_cutting",
+    "ground_truth": ["scripts/export-and-import.ts", "src/lib/batch-import/validator.ts", "src/lib/batch-import/transformer.ts", "src/app/api/admin/batch-import/route.ts"],
+    "keywords": ["batch", "import", "scraper", "sqlite", "validate", "transform"],
+    "optional_files": ["src/lib/batch-import/slug-generator.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_06",
+    "text": "How do the three Supabase client variants differ and where is each used?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/lib/supabase/client.ts", "src/lib/supabase/server.ts", "src/lib/supabase/admin.ts"],
+    "keywords": ["client", "server", "admin", "cookie", "service_role"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "cross_07",
+    "text": "What files are involved when a user flags a circuit as inappropriate?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/components/FlagCircuitModal.tsx", "src/lib/flags.ts", "src/types/flags.ts"],
+    "keywords": ["flag", "report", "modal", "reason"],
+    "optional_files": ["src/app/api/admin/update-flag/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_08",
+    "text": "Trace the thumbnail generation flow from circuit page to stored image",
+    "category": "cross_cutting",
+    "ground_truth": ["src/lib/thumbnail.ts", "src/app/api/upload-thumbnail/route.ts", "src/components/KiCanvas.tsx"],
+    "keywords": ["thumbnail", "capture", "canvas", "R2", "upload"],
+    "optional_files": ["src/lib/thumbnail-url.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_09",
+    "text": "What files handle the comment system from UI to database?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/components/CommentForm.tsx", "src/components/CommentList.tsx", "src/components/Comment.tsx", "src/lib/comments.ts"],
+    "keywords": ["comment", "form", "list", "thread", "supabase"],
+    "optional_files": ["src/types/comments.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_10",
+    "text": "What happens when rate limiting kicks in? Trace from request to response",
+    "category": "cross_cutting",
+    "ground_truth": ["src/middleware.ts", "src/lib/rate-limit.ts"],
+    "keywords": ["rate", "limit", "429", "middleware", "window"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "cross_11",
+    "text": "What files would be involved in rendering the home page with featured circuits?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/page.tsx", "src/lib/circuits.ts", "src/app/api/stats/route.ts"],
+    "keywords": ["home", "featured", "stats", "circuits"],
+    "optional_files": ["src/components/Header.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_12",
+    "text": "What files participate in the circuit edit flow?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/circuit/[slug]/edit/page.tsx", "src/app/api/circuits/[id]/route.ts", "src/lib/circuits.ts"],
+    "keywords": ["edit", "update", "circuit", "slug"],
+    "optional_files": ["src/lib/kicad-parser.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_13",
+    "text": "How does the admin circuit deletion flow work end to end?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/admin/page.tsx", "src/app/api/admin/delete-circuit/route.ts", "src/lib/admin.ts"],
+    "keywords": ["admin", "delete", "circuit"],
+    "optional_files": ["src/lib/supabase/admin.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_14",
+    "text": "What is the data model for circuits? Show all the related types and database tables",
+    "category": "cross_cutting",
+    "ground_truth": ["src/lib/supabase/types.ts", "src/lib/circuits.ts"],
+    "keywords": ["circuits", "profiles", "components", "favorites", "database"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "cross_15",
+    "text": "How does the schematic lazy caching with R2 work end to end?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/api/schematic/[filename]/route.ts", "src/lib/r2-schematic.ts"],
+    "keywords": ["cache", "R2", "redirect", "lazy", "302"],
+    "optional_files": ["scripts/migrate-schematics-to-r2.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_01",
+    "text": "If I wanted to replace Supabase with a different database, what files would I need to modify?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/supabase/client.ts", "src/lib/supabase/server.ts", "src/lib/supabase/admin.ts", "src/lib/supabase/types.ts"],
+    "keywords": ["supabase", "client", "database", "auth"],
+    "optional_files": ["src/lib/circuits.ts", "src/lib/search.ts", "src/lib/comments.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_02",
+    "text": "If I wanted to replace R2 with a different object storage provider, what files need changing?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/r2-schematic.ts", "src/lib/thumbnail.ts"],
+    "keywords": ["R2", "S3", "storage", "upload", "bucket"],
+    "optional_files": ["src/app/api/upload-schematic/route.ts", "src/app/api/upload-thumbnail/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_03",
+    "text": "What would I need to change to add a new sorting option to the circuit search?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/search.ts", "src/app/api/search/route.ts"],
+    "keywords": ["sort", "search", "order", "query"],
+    "optional_files": ["src/app/search/page.tsx", "src/app/browse/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_04",
+    "text": "If I wanted to add email notifications when someone comments on your circuit, what files would I touch?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/comments.ts", "src/lib/circuits.ts"],
+    "keywords": ["comment", "notification", "email", "author"],
+    "optional_files": ["src/components/CommentForm.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_05",
+    "text": "What would need to change to support multiple file formats beyond KiCad?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/kicad-parser.ts", "src/lib/clipboard-validation.ts"],
+    "keywords": ["parser", "format", "validate", "kicad"],
+    "optional_files": ["src/app/upload/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_06",
+    "text": "If I wanted to add OAuth with Google in addition to GitHub, what files would I modify?",
+    "category": "refactoring",
+    "ground_truth": ["src/hooks/useAuth.ts", "src/app/login/page.tsx"],
+    "keywords": ["OAuth", "Google", "GitHub", "auth", "provider"],
+    "optional_files": ["src/app/auth/callback/route.ts", "src/app/signup/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_07",
+    "text": "What would I need to change to add pagination to the browse page?",
+    "category": "refactoring",
+    "ground_truth": ["src/app/browse/page.tsx", "src/lib/circuits.ts"],
+    "keywords": ["pagination", "browse", "limit", "offset", "page"],
+    "optional_files": ["src/lib/search.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_08",
+    "text": "If I wanted to add circuit versioning (save multiple versions of a schematic), what files need changes?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/circuits.ts", "src/lib/r2-schematic.ts", "src/lib/supabase/types.ts"],
+    "keywords": ["version", "circuit", "history", "schematic"],
+    "optional_files": ["src/app/circuit/[slug]/page.tsx", "src/app/api/circuits/[id]/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_09",
+    "text": "What would need to change to replace the in-memory rate limiter with Redis?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/rate-limit.ts", "src/middleware.ts"],
+    "keywords": ["rate", "limit", "Redis", "memory", "Map"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_10",
+    "text": "If I wanted to add tags autocomplete to the upload form, what files would I need to change?",
+    "category": "refactoring",
+    "ground_truth": ["src/app/upload/page.tsx", "src/app/api/tags/route.ts"],
+    "keywords": ["tags", "autocomplete", "upload"],
+    "optional_files": ["src/components/SearchAutocomplete.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_11",
+    "text": "What would I need to modify to add circuit collections/folders for users?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/supabase/types.ts", "src/lib/circuits.ts"],
+    "keywords": ["collection", "folder", "user", "circuit"],
+    "optional_files": ["src/app/profile/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_12",
+    "text": "If the thumbnail generation needs to support SVG export instead of PNG, what changes?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/thumbnail.ts"],
+    "keywords": ["thumbnail", "SVG", "PNG", "canvas", "export"],
+    "optional_files": ["src/app/api/upload-thumbnail/route.ts", "src/lib/thumbnail-url.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_13",
+    "text": "What files would need updating to add a user favorites page?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/circuits.ts", "src/lib/supabase/types.ts"],
+    "keywords": ["favorites", "user", "circuit"],
+    "optional_files": ["src/app/profile/page.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_14",
+    "text": "If I wanted to add real-time comment updates via WebSocket, what would need to change?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/comments.ts", "src/components/CommentList.tsx"],
+    "keywords": ["realtime", "websocket", "comment", "subscribe"],
+    "optional_files": ["src/components/Comment.tsx"],
+    "anti_files": []
+  },
+  {
+    "id": "refactor_15",
+    "text": "What would I need to modify to add an API rate limit response header showing remaining requests?",
+    "category": "refactoring",
+    "ground_truth": ["src/lib/rate-limit.ts", "src/middleware.ts"],
+    "keywords": ["rate", "limit", "header", "remaining", "X-RateLimit"],
+    "optional_files": [],
+    "anti_files": []
+  }
+]

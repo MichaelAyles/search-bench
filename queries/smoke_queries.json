@@ -1,0 +1,47 @@
+[
+  {
+    "id": "exact_01",
+    "text": "Where is the KiCad S-expression parser defined?",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/kicad-parser.ts"],
+    "keywords": ["parse", "kicad", "s-expression", "sexp"],
+    "optional_files": [],
+    "anti_files": []
+  },
+  {
+    "id": "exact_04",
+    "text": "Find the rate limiter implementation",
+    "category": "exact_symbol",
+    "ground_truth": ["src/lib/rate-limit.ts"],
+    "keywords": ["RateLimiter", "rate", "limit", "window"],
+    "optional_files": ["src/middleware.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "concept_09",
+    "text": "How does the comment system handle threading and nesting?",
+    "category": "conceptual",
+    "ground_truth": ["src/lib/comments.ts", "src/components/CommentList.tsx"],
+    "keywords": ["comment", "thread", "parent", "nested", "reply"],
+    "optional_files": ["src/components/Comment.tsx", "src/types/comments.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_01",
+    "text": "What files are involved in the circuit upload pipeline from paste to stored?",
+    "category": "cross_cutting",
+    "ground_truth": ["src/app/upload/page.tsx", "src/lib/kicad-parser.ts", "src/lib/r2-schematic.ts", "src/app/api/upload-schematic/route.ts"],
+    "keywords": ["upload", "parse", "R2", "store", "validate"],
+    "optional_files": ["src/lib/thumbnail.ts", "src/app/api/upload-thumbnail/route.ts"],
+    "anti_files": []
+  },
+  {
+    "id": "cross_02",
+    "text": "Trace the search flow from user input to displayed results",
+    "category": "cross_cutting",
+    "ground_truth": ["src/components/SearchAutocomplete.tsx", "src/app/api/search/route.ts", "src/lib/search.ts", "src/app/search/page.tsx"],
+    "keywords": ["search", "query", "autocomplete", "results", "weighted"],
+    "optional_files": [],
+    "anti_files": []
+  }
+]

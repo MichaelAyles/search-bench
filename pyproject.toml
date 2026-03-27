@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "search-bench"
+version = "0.1.0"
+description = "Benchmark comparing RAG-based semantic search vs native agentic search across AI coding CLI tools"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "sentence-transformers>=3.0.0",
+    "faiss-cpu>=1.7.4",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-python>=0.23.0",
+    "tree-sitter-typescript>=0.23.0",
+    "tree-sitter-javascript>=0.23.0",
+    "tiktoken>=0.7.0",
+    "scipy>=1.11.0",
+    "matplotlib>=3.8.0",
+    "plotly>=5.18.0",
+]
+
+[project.optional-dependencies]
+gpu = ["faiss-gpu>=1.7.4"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23.0"]
+
+[project.scripts]
+search-bench = "src.benchmark.runner:main"
+index-codebase = "src.mcp_server.indexer:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

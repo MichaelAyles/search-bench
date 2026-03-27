@@ -1,0 +1,5 @@
+[[mcp]]
+name = "codebase-rag"
+command = "python"
+args = ["-m", "src.mcp_server.server", "--db", "./data/circuitsnips.db", "--faiss", "./data/circuitsnips.faiss"]
+transport = "stdio"

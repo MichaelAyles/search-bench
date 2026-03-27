@@ -1,0 +1,122 @@
+[
+  {
+    "id": "mod_simple_01",
+    "task": "Add input validation to the schematic upload API endpoint to reject files larger than 10MB",
+    "type": "simple",
+    "expected_scope": ["src/app/api/upload-schematic/route.ts"]
+  },
+  {
+    "id": "mod_simple_02",
+    "task": "Add a rate limit response header (X-RateLimit-Remaining) to the middleware response",
+    "type": "simple",
+    "expected_scope": ["src/middleware.ts", "src/lib/rate-limit.ts"]
+  },
+  {
+    "id": "mod_simple_03",
+    "task": "Add a character limit of 5000 to the comment form and show a character counter",
+    "type": "simple",
+    "expected_scope": ["src/components/CommentForm.tsx"]
+  },
+  {
+    "id": "mod_simple_04",
+    "task": "Add a 'copy link' button to the circuit detail page that copies the URL to clipboard",
+    "type": "simple",
+    "expected_scope": ["src/app/circuit/[slug]/page.tsx"]
+  },
+  {
+    "id": "mod_simple_05",
+    "task": "Add a loading skeleton to the search results page while results are being fetched",
+    "type": "simple",
+    "expected_scope": ["src/app/search/page.tsx"]
+  },
+  {
+    "id": "mod_medium_01",
+    "task": "Add a 'recently viewed' section to the user profile page that shows the last 10 circuits they viewed",
+    "type": "medium",
+    "expected_scope": ["src/app/profile/page.tsx", "src/lib/circuits.ts", "src/lib/supabase/types.ts"]
+  },
+  {
+    "id": "mod_medium_02",
+    "task": "Add full-text search filtering by license type to the search API and search page",
+    "type": "medium",
+    "expected_scope": ["src/lib/search.ts", "src/app/api/search/route.ts", "src/app/search/page.tsx"]
+  },
+  {
+    "id": "mod_medium_03",
+    "task": "Add an API endpoint that returns similar circuits based on shared tags, and show them on the circuit detail page",
+    "type": "medium",
+    "expected_scope": ["src/lib/circuits.ts", "src/app/circuit/[slug]/page.tsx"]
+  },
+  {
+    "id": "mod_medium_04",
+    "task": "Add comment notification badges to the header showing unread comment count for the logged-in user",
+    "type": "medium",
+    "expected_scope": ["src/components/Header.tsx", "src/lib/comments.ts"]
+  },
+  {
+    "id": "mod_medium_05",
+    "task": "Add a circuit download feature that generates a .kicad_sch file from the stored S-expression data",
+    "type": "medium",
+    "expected_scope": ["src/app/circuit/[slug]/page.tsx", "src/lib/kicad-parser.ts"]
+  },
+  {
+    "id": "mod_medium_06",
+    "task": "Add a 'sort by' dropdown to the browse page with options for recent, popular, most viewed, and most copied",
+    "type": "medium",
+    "expected_scope": ["src/app/browse/page.tsx", "src/lib/circuits.ts"]
+  },
+  {
+    "id": "mod_medium_07",
+    "task": "Add a bulk tag editor to the admin dashboard that lets admins update tags for multiple circuits at once",
+    "type": "medium",
+    "expected_scope": ["src/app/admin/page.tsx", "src/lib/circuits.ts"]
+  },
+  {
+    "id": "mod_medium_08",
+    "task": "Add an RSS feed endpoint at /api/feed that returns the 20 most recently added circuits",
+    "type": "medium",
+    "expected_scope": ["src/lib/circuits.ts"]
+  },
+  {
+    "id": "mod_medium_09",
+    "task": "Add input validation using Zod to the circuit edit API endpoint, validating title length, tag count, and description format",
+    "type": "medium",
+    "expected_scope": ["src/app/api/circuits/[id]/route.ts"]
+  },
+  {
+    "id": "mod_medium_10",
+    "task": "Add a circuit comparison view that shows two schematics side by side using KiCanvas",
+    "type": "medium",
+    "expected_scope": ["src/components/KiCanvas.tsx", "src/components/SchematicViewer.tsx"]
+  },
+  {
+    "id": "mod_hard_01",
+    "task": "Refactor the search system to support faceted filtering by category, tag, license, and component count, with counts for each facet",
+    "type": "hard",
+    "expected_scope": ["src/lib/search.ts", "src/app/api/search/route.ts", "src/app/search/page.tsx"]
+  },
+  {
+    "id": "mod_hard_02",
+    "task": "Add circuit versioning: allow users to update schematics while keeping a history of previous versions accessible",
+    "type": "hard",
+    "expected_scope": ["src/lib/circuits.ts", "src/lib/r2-schematic.ts", "src/lib/supabase/types.ts", "src/app/circuit/[slug]/page.tsx"]
+  },
+  {
+    "id": "mod_hard_03",
+    "task": "Replace the in-memory rate limiter with a sliding window rate limiter backed by Supabase, persisting rate limit state across serverless invocations",
+    "type": "hard",
+    "expected_scope": ["src/lib/rate-limit.ts", "src/middleware.ts", "src/lib/supabase/admin.ts"]
+  },
+  {
+    "id": "mod_hard_04",
+    "task": "Add a circuit fork feature: users can fork another user's circuit, creating a linked copy with attribution tracking and a fork graph",
+    "type": "hard",
+    "expected_scope": ["src/lib/circuits.ts", "src/lib/supabase/types.ts", "src/app/circuit/[slug]/page.tsx", "src/lib/r2-schematic.ts"]
+  },
+  {
+    "id": "mod_hard_05",
+    "task": "Add real-time collaborative commenting using Supabase Realtime subscriptions, updating the comment list live without page refresh",
+    "type": "hard",
+    "expected_scope": ["src/lib/comments.ts", "src/components/CommentList.tsx", "src/components/Comment.tsx", "src/lib/supabase/client.ts"]
+  }
+]

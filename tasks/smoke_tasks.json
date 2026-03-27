@@ -1,0 +1,14 @@
+[
+  {
+    "id": "mod_simple_01",
+    "task": "Add input validation to the schematic upload API endpoint to reject files larger than 10MB",
+    "type": "simple",
+    "expected_scope": ["src/app/api/upload-schematic/route.ts"]
+  },
+  {
+    "id": "mod_medium_01",
+    "task": "Add a 'recently viewed' section to the user profile page that shows the last 10 circuits they viewed",
+    "type": "medium",
+    "expected_scope": ["src/app/profile/page.tsx", "src/lib/circuits.ts", "src/lib/supabase/types.ts"]
+  }
+]
