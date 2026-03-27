@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import json
-import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -156,6 +155,59 @@ class MCPConfigManager:
 
 
 # ---------------------------------------------------------------------------
+# Progress display
+# ---------------------------------------------------------------------------
+
+class _Progress:
+    """Thread-safe counters with a 2-second periodic table printer."""
+
+    def __init__(self, total: int, tools: list[str], modes: list[str], label: str):
+        self.total = total
+        self.label = label
+        self._lock = asyncio.Lock()
+        self._counts: dict[str, dict] = {
+            f"{t}/{m}": {"done": 0, "err": 0, "tttc": 0.0}
+            for t in tools for m in modes
+        }
+        self._done = 0
+        self._task: asyncio.Task | None = None
+
+    async def record(self, tool: str, mode: str, tttc: float, error: bool) -> None:
+        async with self._lock:
+            self._done += 1
+            key = f"{tool}/{mode}"
+            if key in self._counts:
+                self._counts[key]["done"] += 1
+                self._counts[key]["tttc"] += tttc
+                if error:
+                    self._counts[key]["err"] += 1
+
+    def _render(self) -> str:
+        lines = [f"  {self.label} — {self._done}/{self.total}"]
+        for key, c in sorted(self._counts.items()):
+            if c["done"] == 0:
+                continue
+            avg = c["tttc"] / c["done"]
+            lines.append(
+                f"    {key:<20} {c['done']:>4} done  {c['err']:>2} err  avg {avg:5.1f}s"
+            )
+        return "\n".join(lines)
+
+    async def _printer(self) -> None:
+        while True:
+            await asyncio.sleep(2)
+            print(self._render(), flush=True)
+
+    def start(self) -> None:
+        self._task = asyncio.ensure_future(self._printer())
+
+    def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+            self._task = None
+
+
+# ---------------------------------------------------------------------------
 # Checkpoint helpers
 # ---------------------------------------------------------------------------
 
@@ -264,8 +316,15 @@ async def _run_tool_for_task(
             )
             return stdout.decode("utf-8", errors="replace"), None
         elif tool_name == "copilot":
-            # gh copilot cannot make file changes via CLI; return empty
-            return "", "copilot: author mode not supported via gh copilot CLI"
+            # gh copilot cannot make file changes, but can answer text questions
+            # (used for review phase). Author phase callers should check for this error.
+            cmd = _resolve_cmd("gh")
+            proc = await asyncio.create_subprocess_exec(
+                cmd, "copilot", "explain", prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(codebase_dir),
+            )
         else:
             return "", f"unknown tool: {tool_name}"
 
@@ -343,11 +402,10 @@ async def _run_read_only(
     total_planned = len(queries) * len(tools) * len(modes) * runs
     print(f"\nRead-only: {total_planned} total ({skipped} cached, {len(work)} to run)")
 
-    completed = 0
-    errors = 0
+    prog = _Progress(len(work), tools, modes, "read-only")
+    prog.start()
 
     async def _run_one(query: Query, tool_name: str, mode_str: str, run_num: int, cp: Path) -> None:
-        nonlocal completed, errors
         wrapper = wrappers[tool_name]
         mode = SearchMode(mode_str)
 
@@ -369,22 +427,17 @@ async def _run_read_only(
         data["score"] = score
         _save_json(cp, data)
 
-        completed += 1
-        if result.error:
-            errors += 1
-        status = "OK" if not result.error else f"ERR({result.error[:40]})"
-        print(
-            f"  [{completed}/{len(work)}] {tool_name}/{mode_str} {query.id} "
-            f"run{run_num}: {status} ({result.tttc_seconds:.1f}s, "
-            f"recall={score['file_recall']:.2f})"
-        )
+        await prog.record(tool_name, mode_str, result.tttc_seconds, error=result.error is not None)
 
     await asyncio.gather(*[_run_one(*args) for args in work])
 
+    prog.stop()
+    print(prog._render())
     mcp.teardown_all()
 
-    if errors:
-        print(f"\n  {errors}/{len(work)} runs had errors")
+    total_errors = sum(c["err"] for c in prog._counts.values())
+    if total_errors:
+        print(f"\n  {total_errors}/{len(work)} runs had errors")
 
     return _collect_ro_checkpoints(output_dir, tools, modes, queries, runs)
 
@@ -458,25 +511,37 @@ async def _run_author(
 
     print(f"\nAuthor: {len(tasks)*len(tools)*len(modes)} total ({skipped} cached, {len(work)} to run)")
 
-    completed = 0
-    errors = 0
+    prog = _Progress(len(work), tools, modes, "author")
+    prog.start()
 
     async def _run_one(task: dict, tool_name: str, mode_str: str, cp: Path) -> None:
-        nonlocal completed, errors
-
         task_id = task["id"]
         task_text = task["task"]
+
+        if tool_name == "copilot":
+            result = {
+                "task_id": task_id, "tool_name": tool_name, "mode": mode_str,
+                "tttc_seconds": 0.0, "diff": "", "diff_stat": {},
+                "error": "copilot: author mode not supported via gh copilot CLI",
+                "run_meta": {
+                    "tool_name": tool_name, "mode": mode_str, "success": False,
+                    "retry_count": 0, "rate_limit_wait_seconds": 0.0,
+                    "failure_reason": "author mode not supported",
+                },
+            }
+            _save_json(cp, result)
+            await prog.record(tool_name, mode_str, 0.0, error=True)
+            return
+
         prompt_tmpl = AUTHOR_RAG_PROMPT if mode_str == "rag" else AUTHOR_NATIVE_PROMPT
         prompt = prompt_tmpl.format(task_text=task_text)
 
         async with global_sem:
             async with tool_sems[tool_name]:
-                # Snapshot current HEAD
                 _, head_ref, _ = await _git(["rev-parse", "--abbrev-ref", "HEAD"], codebase_dir)
                 head_ref = head_ref.strip()
 
                 branch = f"bench/{tool_name}_{mode_str}_{task_id}"
-                # Delete stale branch if exists
                 await _git(["branch", "-D", branch], codebase_dir)
                 code, _, err = await _git(["checkout", "-b", branch], codebase_dir)
 
@@ -491,7 +556,6 @@ async def _run_author(
                         _output, error = await _run_tool_for_task(
                             tool_name, prompt, codebase_dir
                         )
-                        # Capture diff vs base branch
                         _, diff, _ = await _git(["diff", head_ref], codebase_dir)
                     finally:
                         await _git(["checkout", head_ref], codebase_dir)
@@ -522,25 +586,17 @@ async def _run_author(
             },
         }
         _save_json(cp, result)
+        await prog.record(tool_name, mode_str, tttc, error=bool(error))
 
-        completed += 1
-        if error:
-            errors += 1
-        lines = diff_analysis.lines_added + diff_analysis.lines_removed
-        status = f"+{diff_analysis.lines_added}/-{diff_analysis.lines_removed} lines" if diff else "no changes"
-        print(
-            f"  [{completed}/{len(work)}] author {tool_name}/{mode_str} {task_id}: "
-            f"{status} ({tttc:.1f}s)"
-            + (f" ERR: {error[:40]}" if error else "")
-        )
-
-    # Author tasks must run sequentially per tool to avoid git conflicts
-    # Group by tool so different tools can run in parallel
     await asyncio.gather(*[_run_one(*args) for args in work])
 
+    prog.stop()
+    print(prog._render())
     mcp.teardown_all()
-    if errors:
-        print(f"\n  {errors}/{len(work)} author runs had errors")
+
+    total_errors = sum(c["err"] for c in prog._counts.values())
+    if total_errors:
+        print(f"\n  {total_errors}/{len(work)} author runs had errors")
 
     return _collect_author_checkpoints(output_dir, tools, modes, tasks)
 
@@ -583,11 +639,7 @@ async def _run_review(
         key = (ar["task_id"], ar["tool_name"], ar["mode"])
         author_index[key] = ar
 
-    mcp = MCPConfigManager(codebase_dir, db_path, faiss_path)
-    if "rag" in modes:
-        for tool in tools:
-            mcp.setup(tool)
-
+    # Review only sends text prompts; no MCP config needed.
     tool_sems = {name: asyncio.Semaphore(1) for name in tools}
     global_sem = asyncio.Semaphore(concurrency)
 
@@ -619,18 +671,15 @@ async def _run_review(
 
     print(f"\nReview: {len(work) + skipped} total ({skipped} cached, {len(work)} to run)")
 
-    completed = 0
-    errors = 0
+    prog = _Progress(len(work), tools, modes, "review")
+    prog.start()
 
     async def _run_one(
         task: dict, ar: dict,
         reviewer_tool: str, reviewer_mode: str,
         cp: Path,
     ) -> None:
-        nonlocal completed, errors
-
         diff_text = ar["diff"]
-        # Truncate very large diffs to avoid token limits
         if len(diff_text) > 12_000:
             diff_text = diff_text[:12_000] + "\n... (truncated)"
 
@@ -648,7 +697,7 @@ async def _run_review(
 
         tttc = time.monotonic() - t0
 
-        # For Claude, extract text from JSON output
+        # For Claude, unwrap the JSON envelope to get the text response
         answer = output
         if reviewer_tool == "claude":
             try:
@@ -680,22 +729,18 @@ async def _run_review(
             },
         }
         _save_json(cp, result)
-
-        completed += 1
-        if error:
-            errors += 1
-        print(
-            f"  [{completed}/{len(work)}] review {reviewer_tool}/{reviewer_mode} "
-            f"← {ar['tool_name']}/{ar['mode']} {task['id']}: {verdict} ({tttc:.1f}s)"
-        )
+        await prog.record(reviewer_tool, reviewer_mode, tttc, error=bool(error))
 
     await asyncio.gather(*[_run_one(*args) for args in work])
 
-    mcp.teardown_all()
-    if errors:
-        print(f"\n  {errors}/{len(work)} review runs had errors")
+    prog.stop()
+    print(prog._render())
 
-    return _collect_review_checkpoints(output_dir, tools, modes, tasks, author_results)
+    total_errors = sum(c["err"] for c in prog._counts.values())
+    if total_errors:
+        print(f"\n  {total_errors}/{len(work)} review runs had errors")
+
+    return _collect_review_checkpoints(output_dir, tools, modes, tasks)
 
 
 def _collect_review_checkpoints(
@@ -703,7 +748,6 @@ def _collect_review_checkpoints(
     tools: list[str],
     modes: list[str],
     tasks: list[dict],
-    author_results: list[dict],
 ) -> list[dict]:
     results = []
     for task in tasks:
@@ -1012,7 +1056,7 @@ async def _async_main(args: argparse.Namespace) -> None:
     if not author_results:
         author_results = _collect_author_checkpoints(output_dir, tools, modes, tasks)
     if not review_results:
-        review_results = _collect_review_checkpoints(output_dir, tools, modes, tasks, author_results)
+        review_results = _collect_review_checkpoints(output_dir, tools, modes, tasks)
 
     print(f"\nAggregating {len(ro_results)} read-only, {len(author_results)} author, "
           f"{len(review_results)} review results...")
