@@ -36,7 +36,6 @@ Each tool implements a code change in an isolated git branch. Diffs are captured
 
 Every tool reviews every other tool's diffs for each task. Verdicts: `APPROVE`, `REQUEST_CHANGES`, `REJECT`.
 
-> GitHub Copilot (`gh copilot`) cannot make file modifications via CLI, so it participates in read-only and review phases only, not as an author.
 
 ### Metrics collected
 
@@ -81,14 +80,14 @@ npm install -g @openai/codex
 # Gemini CLI
 npm install -g @google/gemini-cli
 
-# GitHub Copilot (requires gh CLI)
-gh extension install github/gh-copilot
+# GitHub Copilot CLI
+npm install -g @github/copilot
 
 # Verify all four are available
 bash scripts/setup_tools.sh
 ```
 
-Each tool needs to be authenticated before running the benchmark. Refer to each tool's documentation for `claude auth`, `codex login`, `gemini auth`, and `gh auth login`.
+Each tool needs to be authenticated before running the benchmark. Refer to each tool's documentation for `claude auth`, `codex login`, `gemini auth`, and `copilot login`.
 
 ### Index the target codebase
 
@@ -251,7 +250,7 @@ Before RAG runs start, the runner writes tool-specific MCP config files pointing
 | Claude Code | `{codebase}/.mcp.json` |
 | Codex CLI | `~/.codex/config.toml` |
 | Gemini CLI | `~/.gemini/settings.json` |
-| GitHub Copilot | Not supported via CLI |
+| GitHub Copilot | `~/.copilot/mcp-config.json` |
 
 Existing configs are backed up and restored after the run.
 
@@ -281,7 +280,7 @@ search-bench/
 │   │   ├── claude.py       # Claude Code: claude --print --output-format json
 │   │   ├── codex.py        # Codex CLI: codex exec
 │   │   ├── gemini.py       # Gemini CLI: gemini --yolo, prompt via stdin
-│   │   ├── copilot.py      # GitHub Copilot: gh copilot explain
+│   │   ├── copilot.py      # GitHub Copilot CLI: copilot -p --output-format json
 │   │   └── token_counter.py# Token estimation + USD cost (pricing table as of 2025)
 │   ├── benchmark/
 │   │   ├── runner.py       # Main orchestrator + CLI entry point (search-bench)
@@ -351,7 +350,7 @@ Estimates computed per-invocation based on token counts reported by each tool (o
 | Claude Code | claude-sonnet-4 | $3.00 | $15.00 |
 | Codex CLI | codex-1 | $2.50 | $10.00 |
 | Gemini CLI | gemini-2.5-flash | $0.075 | $0.30 |
-| GitHub Copilot | gpt-4.1 | $3.00 | $15.00 |
+| GitHub Copilot | claude-haiku-4.5 (default) | $1.00 | $5.00 |
 
 Prices as of 2025. Update `src/wrappers/token_counter.py` to adjust.
 

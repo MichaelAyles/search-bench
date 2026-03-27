@@ -140,9 +140,13 @@ class MCPConfigManager:
             ))
 
         elif tool == "copilot":
-            # gh copilot CLI doesn't support MCP natively; RAG context will be
-            # injected via prompt text instead.
-            pass
+            copilot_dir = Path.home() / ".copilot"
+            copilot_dir.mkdir(exist_ok=True)
+            target = copilot_dir / "mcp-config.json"
+            self._backup(tool, target)
+            target.write_text(json.dumps(
+                {"mcpServers": {"codebase-rag": self._server_entry()}}, indent=2
+            ))
 
     def teardown(self, tool: str) -> None:
         if tool not in self._backups:
@@ -331,11 +335,12 @@ async def _run_tool_for_task(
             )
             return stdout.decode("utf-8", errors="replace"), None
         elif tool_name == "copilot":
-            # gh copilot cannot make file changes, but can answer text questions
-            # (used for review phase). Author phase callers should check for this error.
-            cmd = _resolve_cmd("gh")
+            cmd = _resolve_cmd("copilot")
             proc = await asyncio.create_subprocess_exec(
-                cmd, "copilot", "explain", prompt,
+                cmd, "-p", prompt,
+                "--allow-all-tools",
+                "--no-auto-update",
+                "-s",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(codebase_dir),
@@ -664,21 +669,6 @@ async def _run_author(
     async def _run_one(task: dict, tool_name: str, mode_str: str, cp: Path) -> None:
         task_id = task["id"]
         task_text = task["task"]
-
-        if tool_name == "copilot":
-            result = {
-                "task_id": task_id, "tool_name": tool_name, "mode": mode_str,
-                "tttc_seconds": 0.0, "diff": "", "diff_stat": {},
-                "error": "copilot: author mode not supported via gh copilot CLI",
-                "run_meta": {
-                    "tool_name": tool_name, "mode": mode_str, "success": False,
-                    "retry_count": 0, "rate_limit_wait_seconds": 0.0,
-                    "failure_reason": "author mode not supported",
-                },
-            }
-            _save_json(cp, result)
-            await prog.record(tool_name, mode_str, 0.0, error=True)
-            return
 
         prompt_tmpl = AUTHOR_RAG_PROMPT if mode_str == "rag" else AUTHOR_NATIVE_PROMPT
         prompt = prompt_tmpl.format(task_text=task_text)

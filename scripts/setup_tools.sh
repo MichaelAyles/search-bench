@@ -19,17 +19,7 @@ check_tool "Claude Code" "claude"
 check_tool "Codex CLI" "codex"
 check_tool "Gemini CLI" "gemini"
 
-# Copilot is via gh extension
-if command -v gh &>/dev/null; then
-    if gh copilot --version &>/dev/null 2>&1; then
-        echo "✓ GitHub Copilot: available via gh copilot"
-    else
-        echo "✗ GitHub Copilot: gh found but copilot extension not installed"
-        echo "  Install with: gh extension install github/gh-copilot"
-    fi
-else
-    echo "✗ GitHub Copilot: gh CLI not found"
-fi
+check_tool "GitHub Copilot CLI" "copilot"
 
 echo ""
 echo "=== Checking Python Dependencies ==="

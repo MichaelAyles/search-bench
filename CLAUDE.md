@@ -55,7 +55,7 @@ Analysis Pipeline (stats, charts, report)
 
 - `base.py` — Shared types (`SearchMode`, `Query`, `SearchOp`, `QueryResult`) and `ToolWrapper` ABC; contains the NATIVE vs RAG prompt templates
 - `claude.py` — Runs `claude --print --output-format json`; parses nested tool-use messages for files accessed; 120s timeout
-- `codex.py`, `gemini.py`, `copilot.py` — Thin wrappers around `codex exec`, `gemini --yolo`, `gh copilot`
+- `codex.py`, `gemini.py`, `copilot.py` — Thin wrappers around `codex exec`, `gemini --yolo`, `copilot -p`
 - `token_counter.py` — Token estimation with tiktoken; pricing table for all four tools
 
 **`src/benchmark/`** — Orchestration
