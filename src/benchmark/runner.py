@@ -98,9 +98,17 @@ class MCPConfigManager:
             "env": {"PYTHONPATH": str(PROJECT_ROOT)},
         }
 
-    def setup(self, tool: str) -> None:
+    def setup(self, tool: str, target_dir: Path | None = None) -> None:
+        """Write MCP config for a tool.
+
+        Args:
+            tool: Tool name (claude, codex, gemini, copilot).
+            target_dir: Override directory for config files that live in the
+                codebase (Claude's .mcp.json). If None, uses self.codebase_dir.
+        """
+        cwd = target_dir or self.codebase_dir
         if tool == "claude":
-            target = self.codebase_dir / ".mcp.json"
+            target = cwd / ".mcp.json"
             self._backup(tool, target)
             target.write_text(json.dumps(
                 {"mcpServers": {"codebase-rag": self._server_entry()}}, indent=2
@@ -582,6 +590,24 @@ def _collect_ro_checkpoints(
 # Author phase
 # ---------------------------------------------------------------------------
 
+async def _cleanup_stale_worktrees(codebase_dir: Path, worktrees_dir: Path) -> None:
+    """Remove leftover worktrees and branches from a prior crashed run."""
+    if not worktrees_dir.exists():
+        return
+    for entry in worktrees_dir.iterdir():
+        if entry.is_dir():
+            await _git(["worktree", "remove", str(entry), "--force"], codebase_dir)
+    # Prune any worktree metadata that points to now-deleted paths
+    await _git(["worktree", "prune"], codebase_dir)
+    # Clean up orphaned bench/* branches
+    code, stdout, _ = await _git(["branch", "--list", "bench/*"], codebase_dir)
+    if code == 0:
+        for line in stdout.splitlines():
+            branch = line.strip().lstrip("* ")
+            if branch:
+                await _git(["branch", "-D", branch], codebase_dir)
+
+
 async def _run_author(
     tasks: list[dict],
     tools: list[str],
@@ -596,18 +622,25 @@ async def _run_author(
 ) -> list[dict]:
     """Execute author (code-modification) phase. Returns author results."""
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    mcp = MCPConfigManager(codebase_dir, db_path, faiss_path)
-    if "rag" in modes:
-        for tool in tools:
-            mcp.setup(tool)
+    worktrees_dir = output_dir / "worktrees"
+    worktrees_dir.mkdir(exist_ok=True)
 
     # Verify codebase is a git repo
     code, _, err = await _git(["rev-parse", "--abbrev-ref", "HEAD"], codebase_dir)
     if code != 0:
         print(f"  [warn] author phase: codebase is not a git repo ({err.strip()}); skipping")
-        mcp.teardown_all()
         return []
+
+    # Clean up stale worktrees/branches from prior crashed runs
+    await _cleanup_stale_worktrees(codebase_dir, worktrees_dir)
+
+    # MCP configs for tools that use global config paths (codex, gemini)
+    # are set up once here. Claude's .mcp.json goes in each worktree.
+    mcp = MCPConfigManager(codebase_dir, db_path, faiss_path)
+    if "rag" in modes:
+        for tool in tools:
+            if tool != "claude":
+                mcp.setup(tool)
 
     tool_sems = {name: asyncio.Semaphore(1) for name in tools}
     global_sem = asyncio.Semaphore(concurrency)
@@ -650,30 +683,42 @@ async def _run_author(
         prompt_tmpl = AUTHOR_RAG_PROMPT if mode_str == "rag" else AUTHOR_NATIVE_PROMPT
         prompt = prompt_tmpl.format(task_text=task_text)
 
+        branch = f"bench/{tool_name}_{mode_str}_{task_id}"
+        wt_path = worktrees_dir / f"{tool_name}_{mode_str}_{task_id}"
+
+        t0 = time.monotonic()
+        error: str | None = None
+        diff = ""
+        retry_count, rl_wait = 0, 0.0
+
         async with global_sem:
             async with tool_sems[tool_name]:
-                _, head_ref, _ = await _git(["rev-parse", "--abbrev-ref", "HEAD"], codebase_dir)
-                head_ref = head_ref.strip()
-
-                branch = f"bench/{tool_name}_{mode_str}_{task_id}"
+                # Clean up if this worktree/branch exists from a prior crash
+                if wt_path.exists():
+                    await _git(["worktree", "remove", str(wt_path), "--force"], codebase_dir)
                 await _git(["branch", "-D", branch], codebase_dir)
-                code, _, err = await _git(["checkout", "-b", branch], codebase_dir)
 
-                t0 = time.monotonic()
-                error: str | None = None
-                diff = ""
+                # Create isolated worktree
+                code, _, err = await _git(
+                    ["worktree", "add", str(wt_path), "-b", branch, "HEAD"],
+                    codebase_dir,
+                )
 
                 if code != 0:
-                    error = f"git checkout -b failed: {err.strip()}"
-                    retry_count, rl_wait = 0, 0.0
+                    error = f"git worktree add failed: {err.strip()}"
                 else:
                     try:
+                        # Write Claude MCP config into the worktree
+                        if mode_str == "rag" and tool_name == "claude":
+                            mcp.setup("claude", target_dir=wt_path)
+
                         _output, error, retry_count, rl_wait = await _tool_with_retry(
-                            tool_name, prompt, codebase_dir, max_retries=max_retries
+                            tool_name, prompt, wt_path, max_retries=max_retries
                         )
-                        _, diff, _ = await _git(["diff", head_ref], codebase_dir)
+                        # Diff against HEAD within the worktree
+                        _, diff, _ = await _git(["diff", "HEAD"], wt_path)
                     finally:
-                        await _git(["checkout", head_ref], codebase_dir)
+                        await _git(["worktree", "remove", str(wt_path), "--force"], codebase_dir)
                         await _git(["branch", "-D", branch], codebase_dir)
 
         tttc = time.monotonic() - t0

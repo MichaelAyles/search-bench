@@ -16,6 +16,7 @@ data/*.db
 results/*.json
 results/*.html
 results/*.png
+results/worktrees/
 diffs/*.diff
 .env
 /benchmark/
