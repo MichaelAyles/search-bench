@@ -58,9 +58,10 @@ Analysis Pipeline (stats, charts, report)
 - `codex.py`, `gemini.py`, `copilot.py` — Thin wrappers around `codex exec`, `gemini --yolo`, `gh copilot`
 - `token_counter.py` — Token estimation with tiktoken; pricing table for all four tools
 
-**`src/benchmark/`** — Orchestration (runner not yet implemented)
+**`src/benchmark/`** — Orchestration
 
-- Entry point `src/benchmark/runner.py:main` is scaffolded but not complete
+- `runner.py` — Main orchestrator and `search-bench` CLI entry point; handles all three phases, checkpoint/resume, per-tool semaphores, exponential backoff retry, MCP config injection, progress display, and report generation
+- `scorer.py` — File recall/precision/F1 scoring with fuzzy path matching
 
 **`src/analysis/`** — Post-run analysis
 
@@ -80,6 +81,5 @@ Analysis Pipeline (stats, charts, report)
 
 ## Important notes
 
-- `src/benchmark/runner.py` (the `search-bench` CLI entry point) is not yet implemented — this is the primary missing piece.
 - The target codebase to benchmark against (`./benchmark/circuitsnips`) is not included; clone it separately before indexing.
-- FAISS index and SQLite DB paths are configured in `configs/claude-mcp.json` and passed as args to `src.mcp_server.server`.
+- FAISS index and SQLite DB paths default to `./data/circuitsnips.{db,faiss}` and are passed as args to `src.mcp_server.server` via MCP config injection.

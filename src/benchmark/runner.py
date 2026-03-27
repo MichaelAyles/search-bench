@@ -194,9 +194,16 @@ class _Progress:
         return "\n".join(lines)
 
     async def _printer(self) -> None:
+        prev_lines = 0
         while True:
             await asyncio.sleep(2)
-            print(self._render(), flush=True)
+            rendered = self._render()
+            if prev_lines:
+                # Move cursor up and clear to end-of-screen, then redraw
+                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
+            sys.stdout.write(rendered + "\n")
+            sys.stdout.flush()
+            prev_lines = rendered.count("\n") + 1
 
     def start(self) -> None:
         self._task = asyncio.ensure_future(self._printer())
@@ -338,6 +345,103 @@ async def _run_tool_for_task(
 
 
 # ---------------------------------------------------------------------------
+# Retry helpers
+# ---------------------------------------------------------------------------
+
+_RETRYABLE = ("timeout", "429", "rate limit", "rate_limit", "too many", "503", "overloaded", "connection")
+_RATE_LIMIT = ("429", "rate limit", "rate_limit", "too many")
+
+
+async def _run_with_retry(
+    wrapper,
+    query: "Query",
+    mode: "SearchMode",
+    run_number: int,
+    max_retries: int = 3,
+) -> tuple["QueryResult", int, float]:
+    """Run a read-only query with exponential backoff retry.
+
+    Returns (result, retry_count, total_rate_limit_wait_seconds).
+    Only retries on timeout / rate-limit / transient server errors.
+    """
+    delay = 5.0
+    rate_limit_wait = 0.0
+
+    for attempt in range(max_retries + 1):
+        result = await wrapper.run_query(query, mode, run_number)
+
+        if result.error is None:
+            return result, attempt, rate_limit_wait
+
+        if attempt >= max_retries:
+            break
+
+        err_lower = result.error.lower()
+        is_rate_limit = any(x in err_lower for x in _RATE_LIMIT)
+        is_retryable = any(x in err_lower for x in _RETRYABLE)
+
+        if not is_retryable:
+            break
+
+        wait = delay * 2 if is_rate_limit else delay
+        if is_rate_limit:
+            rate_limit_wait += wait
+
+        print(
+            f"\n  [retry {attempt + 1}/{max_retries}] {wrapper.name()} "
+            f"error: {result.error[:60]} — retrying in {wait:.0f}s"
+        )
+        await asyncio.sleep(wait)
+        delay = min(delay * 2, 60.0)
+
+    return result, attempt, rate_limit_wait
+
+
+async def _tool_with_retry(
+    tool_name: str,
+    prompt: str,
+    codebase_dir: "Path",
+    max_retries: int = 3,
+    timeout: int = 180,
+) -> tuple[str, str | None, int, float]:
+    """Run _run_tool_for_task with retries.
+
+    Returns (output, error, retry_count, rate_limit_wait_seconds).
+    """
+    delay = 5.0
+    rate_limit_wait = 0.0
+
+    for attempt in range(max_retries + 1):
+        output, error = await _run_tool_for_task(tool_name, prompt, codebase_dir, timeout)
+
+        if error is None:
+            return output, None, attempt, rate_limit_wait
+
+        if attempt >= max_retries:
+            break
+
+        err_lower = error.lower()
+        is_rate_limit = any(x in err_lower for x in _RATE_LIMIT)
+        is_retryable = any(x in err_lower for x in _RETRYABLE)
+
+        if not is_retryable:
+            break
+
+        wait = delay * 2 if is_rate_limit else delay
+        if is_rate_limit:
+            rate_limit_wait += wait
+
+        print(
+            f"\n  [retry {attempt + 1}/{max_retries}] {tool_name} "
+            f"error: {error[:60]} — retrying in {wait:.0f}s"
+        )
+        await asyncio.sleep(wait)
+        delay = min(delay * 2, 60.0)
+
+    return output, error, attempt, rate_limit_wait
+
+
+# ---------------------------------------------------------------------------
 # Review verdict parser
 # ---------------------------------------------------------------------------
 
@@ -373,6 +477,8 @@ async def _run_read_only(
     faiss_path: Path,
     concurrency: int,
     resume: bool,
+    max_retries: int = 3,
+    save_transcripts: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Execute read-only phase. Returns (results, scores)."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -411,25 +517,32 @@ async def _run_read_only(
 
         async with global_sem:
             async with tool_sems[tool_name]:
-                result = await wrapper.run_query(query, mode, run_num)
+                result, retry_count, rl_wait = await _run_with_retry(
+                    wrapper, query, mode, run_num, max_retries=max_retries
+                )
 
         result.run_meta = {
             "tool_name": tool_name,
             "mode": mode_str,
             "success": result.error is None,
-            "retry_count": 0,
-            "rate_limit_wait_seconds": 0.0,
+            "retry_count": retry_count,
+            "rate_limit_wait_seconds": rl_wait,
             "failure_reason": result.error or "",
         }
 
         score = score_query(result, query)
         data = result.to_dict()
         data["score"] = score
+        if save_transcripts and result.raw_transcript:
+            data["raw_transcript"] = result.raw_transcript
         _save_json(cp, data)
 
         await prog.record(tool_name, mode_str, result.tttc_seconds, error=result.error is not None)
 
-    await asyncio.gather(*[_run_one(*args) for args in work])
+    raw = await asyncio.gather(*[_run_one(*args) for args in work], return_exceptions=True)
+    exc_count = sum(1 for r in raw if isinstance(r, BaseException))
+    if exc_count:
+        print(f"\n  [warn] {exc_count} tasks raised unhandled exceptions (check logs)")
 
     prog.stop()
     print(prog._render())
@@ -479,6 +592,7 @@ async def _run_author(
     faiss_path: Path,
     concurrency: int,
     resume: bool,
+    max_retries: int = 3,
 ) -> list[dict]:
     """Execute author (code-modification) phase. Returns author results."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -551,10 +665,11 @@ async def _run_author(
 
                 if code != 0:
                     error = f"git checkout -b failed: {err.strip()}"
+                    retry_count, rl_wait = 0, 0.0
                 else:
                     try:
-                        _output, error = await _run_tool_for_task(
-                            tool_name, prompt, codebase_dir
+                        _output, error, retry_count, rl_wait = await _tool_with_retry(
+                            tool_name, prompt, codebase_dir, max_retries=max_retries
                         )
                         _, diff, _ = await _git(["diff", head_ref], codebase_dir)
                     finally:
@@ -580,15 +695,18 @@ async def _run_author(
                 "tool_name": tool_name,
                 "mode": mode_str,
                 "success": error is None and bool(diff),
-                "retry_count": 0,
-                "rate_limit_wait_seconds": 0.0,
+                "retry_count": retry_count,
+                "rate_limit_wait_seconds": rl_wait,
                 "failure_reason": error or ("empty diff" if not diff else ""),
             },
         }
         _save_json(cp, result)
         await prog.record(tool_name, mode_str, tttc, error=bool(error))
 
-    await asyncio.gather(*[_run_one(*args) for args in work])
+    raw = await asyncio.gather(*[_run_one(*args) for args in work], return_exceptions=True)
+    exc_count = sum(1 for r in raw if isinstance(r, BaseException))
+    if exc_count:
+        print(f"\n  [warn] {exc_count} author tasks raised unhandled exceptions")
 
     prog.stop()
     print(prog._render())
@@ -629,6 +747,7 @@ async def _run_review(
     concurrency: int,
     resume: bool,
     author_results: list[dict],
+    max_retries: int = 3,
 ) -> list[dict]:
     """Execute review phase (every reviewer reviews every author diff)."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -691,8 +810,8 @@ async def _run_review(
         t0 = time.monotonic()
         async with global_sem:
             async with tool_sems[reviewer_tool]:
-                output, error = await _run_tool_for_task(
-                    reviewer_tool, prompt, codebase_dir
+                output, error, retry_count, rl_wait = await _tool_with_retry(
+                    reviewer_tool, prompt, codebase_dir, max_retries=max_retries
                 )
 
         tttc = time.monotonic() - t0
@@ -723,15 +842,18 @@ async def _run_review(
                 "tool_name": reviewer_tool,
                 "mode": reviewer_mode,
                 "success": error is None,
-                "retry_count": 0,
-                "rate_limit_wait_seconds": 0.0,
+                "retry_count": retry_count,
+                "rate_limit_wait_seconds": rl_wait,
                 "failure_reason": error or "",
             },
         }
         _save_json(cp, result)
         await prog.record(reviewer_tool, reviewer_mode, tttc, error=bool(error))
 
-    await asyncio.gather(*[_run_one(*args) for args in work])
+    raw = await asyncio.gather(*[_run_one(*args) for args in work], return_exceptions=True)
+    exc_count = sum(1 for r in raw if isinstance(r, BaseException))
+    if exc_count:
+        print(f"\n  [warn] {exc_count} review tasks raised unhandled exceptions")
 
     prog.stop()
     print(prog._render())
@@ -908,6 +1030,10 @@ def _parse_args() -> argparse.Namespace:
                         help="SQLite DB path for MCP server")
     parser.add_argument("--faiss", type=Path, default=Path("./data/circuitsnips.faiss"),
                         help="FAISS index path for MCP server")
+    parser.add_argument("--max-retries", type=int, default=3,
+                        help="Max retries on transient errors per invocation (default: 3)")
+    parser.add_argument("--save-transcripts", action="store_true",
+                        help="Include raw tool output in read-only checkpoint files")
     return parser.parse_args()
 
 
@@ -1005,6 +1131,8 @@ async def _async_main(args: argparse.Namespace) -> None:
             faiss_path=faiss_path,
             concurrency=args.concurrency,
             resume=args.resume,
+            max_retries=args.max_retries,
+            save_transcripts=args.save_transcripts,
         )
         if ro_scores:
             recalls = [s["file_recall"] for s in ro_scores]
@@ -1026,6 +1154,7 @@ async def _async_main(args: argparse.Namespace) -> None:
                 faiss_path=faiss_path,
                 concurrency=args.concurrency,
                 resume=args.resume,
+                max_retries=args.max_retries,
             )
 
     # --- Review phase ---
@@ -1047,6 +1176,7 @@ async def _async_main(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency,
                 resume=args.resume,
                 author_results=author_results,
+                max_retries=args.max_retries,
             )
 
     # --- Aggregate and report ---
