@@ -164,6 +164,8 @@ search-bench --codebase ./benchmark/circuitsnips --phase read_only --no-resume
 --resume / --no-resume   Skip or force-rerun checkpointed results  (default: resume)
 --db PATH                SQLite DB path for MCP server  (default: ./data/circuitsnips.db)
 --faiss PATH             FAISS index path for MCP server  (default: ./data/circuitsnips.faiss)
+--max-retries N          Max retries on transient errors per invocation  (default: 3)
+--save-transcripts       Include raw tool output in read-only checkpoint files
 ```
 
 ---
@@ -235,11 +237,13 @@ The `results.json` structure:
    └─────────────────────────────────────────────┘
 ```
 
-### Concurrency model
+### Concurrency and retry
 
 - One asyncio semaphore per tool (`Semaphore(1)`) prevents concurrent calls to the same tool, avoiding rate limits
 - One global semaphore (`Semaphore(--concurrency)`) caps total in-flight invocations
 - Different tools run in parallel within those bounds
+- Transient errors (timeouts, 429s, rate limits, 503s) trigger exponential backoff retry up to `--max-retries` times
+- `asyncio.gather(..., return_exceptions=True)` in all phases ensures one failed task doesn't abort the rest
 
 ### MCP config injection (RAG mode)
 
@@ -260,7 +264,9 @@ Each invocation is saved as an individual JSON file immediately on completion. O
 
 ### Author phase isolation
 
-Each author task runs in a dedicated git branch (`bench/{tool}_{mode}_{task_id}`), created fresh from the current HEAD. The branch is deleted and HEAD is restored in a `finally` block regardless of success or error.
+Each author task runs in its own **git worktree** under `results/worktrees/{tool}_{mode}_{task_id}`, on a dedicated branch `bench/{tool}_{mode}_{task_id}`. Worktrees give each concurrent tool an isolated filesystem while sharing the `.git` directory, preventing the race condition where multiple tools doing `git checkout` in the same working copy would stomp each other's changes.
+
+The worktree and branch are removed in a `finally` block regardless of success or error. Stale worktrees from prior crashed runs are cleaned up automatically at the start of the author phase.
 
 ---
 
@@ -281,7 +287,7 @@ search-bench/
 │   │   ├── codex.py        # Codex CLI: codex exec
 │   │   ├── gemini.py       # Gemini CLI: gemini --yolo, prompt via stdin
 │   │   ├── copilot.py      # GitHub Copilot CLI: copilot -p --output-format json
-│   │   └── token_counter.py# Token estimation + USD cost (pricing table as of 2025)
+│   │   └── token_counter.py# Token estimation + USD cost (pricing table)
 │   ├── benchmark/
 │   │   ├── runner.py       # Main orchestrator + CLI entry point (search-bench)
 │   │   └── scorer.py       # Fuzzy file path matching, all scoring metrics
@@ -348,7 +354,7 @@ Estimates computed per-invocation based on token counts reported by each tool (o
 | Tool | Model | Input ($/1M) | Output ($/1M) |
 |---|---|---|---|
 | Claude Code | claude-sonnet-4 | $3.00 | $15.00 |
-| Codex CLI | codex-1 | $2.50 | $10.00 |
+| Codex CLI | gpt-5.x-codex | $2.50 | $10.00 |
 | Gemini CLI | gemini-2.5-flash | $0.075 | $0.30 |
 | GitHub Copilot | claude-haiku-4.5 (default) | $1.00 | $5.00 |
 

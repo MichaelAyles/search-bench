@@ -53,15 +53,17 @@ Analysis Pipeline (stats, charts, report)
 
 **`src/wrappers/`** — Per-tool CLI wrappers
 
-- `base.py` — Shared types (`SearchMode`, `Query`, `SearchOp`, `QueryResult`) and `ToolWrapper` ABC; contains the NATIVE vs RAG prompt templates
+- `base.py` — Shared types (`SearchMode`, `Query`, `SearchOp`, `QueryResult`), `ToolWrapper` ABC, `_extract_files()` shared helper, NATIVE vs RAG prompt templates
 - `claude.py` — Runs `claude --print --output-format json`; parses nested tool-use messages for files accessed; 120s timeout
-- `codex.py`, `gemini.py`, `copilot.py` — Thin wrappers around `codex exec`, `gemini --yolo`, `copilot -p`
+- `codex.py` — Runs `codex exec`; parses JSON output for tokens/answer
+- `gemini.py` — Runs `gemini --yolo`, prompt via stdin
+- `copilot.py` — Runs `copilot -p --output-format json --allow-all-tools`; parses JSONL event stream for messages, tool uses, and file accesses
 - `token_counter.py` — Token estimation with tiktoken; pricing table for all four tools
 
 **`src/benchmark/`** — Orchestration
 
-- `runner.py` — Main orchestrator and `search-bench` CLI entry point; handles all three phases, checkpoint/resume, per-tool semaphores, exponential backoff retry, MCP config injection, progress display, and report generation
-- `scorer.py` — File recall/precision/F1 scoring with fuzzy path matching
+- `runner.py` — Main orchestrator and `search-bench` CLI entry point; handles all three phases, checkpoint/resume, per-tool semaphores, exponential backoff retry (`_run_with_retry`, `_tool_with_retry`), MCP config injection (`MCPConfigManager`), git worktree isolation for author tasks, ANSI progress display, and report generation
+- `scorer.py` — File recall/precision/F1 scoring with fuzzy path matching (normalize, suffix, basename fallback)
 
 **`src/analysis/`** — Post-run analysis
 
@@ -79,7 +81,11 @@ Analysis Pipeline (stats, charts, report)
 
 **`configs/`** — Tool configuration files (MCP server paths for Claude, settings for Codex/Gemini/Copilot)
 
-## Important notes
+## Key design details
 
-- The target codebase to benchmark against (`./benchmark/circuitsnips`) is not included; clone it separately before indexing.
-- FAISS index and SQLite DB paths default to `./data/circuitsnips.{db,faiss}` and are passed as args to `src.mcp_server.server` via MCP config injection.
+- **Author phase uses git worktrees** for isolation — each tool runs in `results/worktrees/{tool}_{mode}_{task}`, preventing concurrent checkout races. Stale worktrees from crashed runs are cleaned up automatically.
+- **MCP config injection** writes tool-specific config files before RAG runs: `.mcp.json` for Claude (in worktree dir for author), `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.copilot/mcp-config.json`. Originals are backed up and restored.
+- **Retry logic** uses exponential backoff for transient errors (timeouts, 429s, rate limits, 503s). Controlled via `--max-retries`.
+- **All four tools** participate in all three benchmark phases (read-only, author, review).
+- The target codebase (`./benchmark/circuitsnips`) is not included; clone it separately before indexing.
+- FAISS index and SQLite DB paths default to `./data/circuitsnips.{db,faiss}`.
