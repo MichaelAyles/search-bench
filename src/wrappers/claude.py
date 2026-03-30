@@ -43,6 +43,7 @@ class ClaudeWrapper(ToolWrapper):
         try:
             proc = await asyncio.create_subprocess_exec(
                 "claude", "--print", "--output-format", "json",
+                "--model", "claude-opus-4-5",
                 "-p", prompt,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

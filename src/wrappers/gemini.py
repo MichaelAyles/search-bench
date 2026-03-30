@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -41,26 +42,29 @@ class GeminiWrapper(ToolWrapper):
 
         try:
             cmd = _resolve_cmd("gemini")
-            # Pass prompt via stdin, -p "" enables headless mode
+            # Pass prompt via stdin with -p "" to enable headless mode; JSON for structured output
+            env = os.environ.copy()
             if _needs_shell():
                 proc = await asyncio.create_subprocess_shell(
-                    f'"{cmd}" --yolo -p ""',
+                    f'"{cmd}" --yolo --output-format json -p ""',
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(self.codebase_dir),
+                    env=env,
                 )
             else:
                 proc = await asyncio.create_subprocess_exec(
-                    cmd, "--yolo", "-p", "",
+                    cmd, "--yolo", "--output-format", "json", "-p", "",
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(self.codebase_dir),
+                    env=env,
                 )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(input=prompt.encode("utf-8")),
-                timeout=120,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             return QueryResult(
@@ -70,7 +74,7 @@ class GeminiWrapper(ToolWrapper):
                 run_number=run_number,
                 answer="",
                 tttc_seconds=time.monotonic() - t0,
-                error="Timeout after 120s",
+                error="Timeout after 300s",
             )
         except Exception as e:
             return QueryResult(
@@ -86,16 +90,33 @@ class GeminiWrapper(ToolWrapper):
         tttc = time.monotonic() - t0
         raw = stdout.decode("utf-8", errors="replace")
 
+        # Parse JSON output format
+        answer = raw
+        tokens_in = 0
+        tokens_out = 0
+        try:
+            data = json.loads(raw)
+            answer = data.get("response", raw)
+            # Sum tokens across all models
+            for model_stats in data.get("stats", {}).get("models", {}).values():
+                toks = model_stats.get("tokens", {})
+                tokens_in += toks.get("input", 0)
+                tokens_out += toks.get("candidates", 0)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
         result = QueryResult(
             tool_name=self.name(),
             mode=mode.value,
             query_id=query.id,
             run_number=run_number,
-            answer=raw,
+            answer=answer,
             tttc_seconds=tttc,
             raw_transcript=raw,
         )
-        result.files_returned = _extract_files(raw)
+        result.tokens_input = tokens_in
+        result.tokens_output = tokens_out
+        result.files_returned = _extract_files(answer)
         return result
 
 

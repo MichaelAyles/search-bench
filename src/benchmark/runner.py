@@ -230,6 +230,15 @@ class _Progress:
 # Checkpoint helpers
 # ---------------------------------------------------------------------------
 
+def _checkpoint_has_error(cp: Path) -> bool:
+    """Check if a checkpoint file contains an errored result."""
+    try:
+        data = json.loads(cp.read_text())
+        return bool(data.get("error"))
+    except (json.JSONDecodeError, OSError):
+        return True
+
+
 def _ro_checkpoint(output_dir: Path, tool: str, mode: str, query_id: str, run: int) -> Path:
     return output_dir / f"{tool}_{mode}_{query_id}_run{run}.json"
 
@@ -492,6 +501,7 @@ async def _run_read_only(
     resume: bool,
     max_retries: int = 3,
     save_transcripts: bool = False,
+    retry_errors: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Execute read-only phase. Returns (results, scores)."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -514,7 +524,10 @@ async def _run_read_only(
                 for run_num in range(1, runs + 1):
                     cp = _ro_checkpoint(output_dir, tool_name, mode, query.id, run_num)
                     if resume and cp.exists():
-                        skipped += 1
+                        if retry_errors and _checkpoint_has_error(cp):
+                            pass  # fall through to re-run
+                        else:
+                            skipped += 1
                         continue
                     work.append((query, tool_name, mode, run_num, cp))
 
@@ -624,6 +637,7 @@ async def _run_author(
     concurrency: int,
     resume: bool,
     max_retries: int = 3,
+    retry_errors: bool = False,
 ) -> list[dict]:
     """Execute author (code-modification) phase. Returns author results."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -657,8 +671,11 @@ async def _run_author(
             for mode in modes:
                 cp = _author_checkpoint(output_dir, tool_name, mode, task["id"])
                 if resume and cp.exists():
-                    skipped += 1
-                    continue
+                    if retry_errors and _checkpoint_has_error(cp):
+                        pass  # fall through to re-run
+                    else:
+                        skipped += 1
+                        continue
                 work.append((task, tool_name, mode, cp))
 
     print(f"\nAuthor: {len(tasks)*len(tools)*len(modes)} total ({skipped} cached, {len(work)} to run)")
@@ -783,6 +800,7 @@ async def _run_review(
     resume: bool,
     author_results: list[dict],
     max_retries: int = 3,
+    retry_errors: bool = False,
 ) -> list[dict]:
     """Execute review phase (every reviewer reviews every author diff)."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -819,8 +837,11 @@ async def _run_review(
                             task_id,
                         )
                         if resume and cp.exists():
-                            skipped += 1
-                            continue
+                            if retry_errors and _checkpoint_has_error(cp):
+                                pass  # fall through to re-run
+                            else:
+                                skipped += 1
+                                continue
                         work.append((task, ar, reviewer_tool, reviewer_mode, cp))
 
     print(f"\nReview: {len(work) + skipped} total ({skipped} cached, {len(work)} to run)")
@@ -1061,6 +1082,8 @@ def _parse_args() -> argparse.Namespace:
                         help="Skip already-checkpointed results (default: True)")
     parser.add_argument("--no-resume", dest="resume", action="store_false",
                         help="Force rerun of all results")
+    parser.add_argument("--retry-errors", action="store_true",
+                        help="Re-run checkpointed results that contain errors")
     parser.add_argument("--db", type=Path, default=Path("./data/circuitsnips.db"),
                         help="SQLite DB path for MCP server")
     parser.add_argument("--faiss", type=Path, default=Path("./data/circuitsnips.faiss"),
@@ -1168,6 +1191,7 @@ async def _async_main(args: argparse.Namespace) -> None:
             resume=args.resume,
             max_retries=args.max_retries,
             save_transcripts=args.save_transcripts,
+            retry_errors=args.retry_errors,
         )
         if ro_scores:
             recalls = [s["file_recall"] for s in ro_scores]
@@ -1190,6 +1214,7 @@ async def _async_main(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency,
                 resume=args.resume,
                 max_retries=args.max_retries,
+                retry_errors=args.retry_errors,
             )
 
     # --- Review phase ---
@@ -1212,6 +1237,7 @@ async def _async_main(args: argparse.Namespace) -> None:
                 resume=args.resume,
                 author_results=author_results,
                 max_retries=args.max_retries,
+                retry_errors=args.retry_errors,
             )
 
     # --- Aggregate and report ---

@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 # Approximate pricing per 1M tokens (input/output) as of 2025
 PRICING = {
-    "claude": {"input": 3.0, "output": 15.0, "model": "claude-sonnet-4"},
-    "codex": {"input": 2.5, "output": 10.0, "model": "codex-1"},
-    "gemini": {"input": 0.075, "output": 0.30, "model": "gemini-2.5-flash"},
+    "claude": {"input": 15.0, "output": 75.0, "model": "claude-opus-4-5"},
+    "codex": {"input": 2.5, "output": 10.0, "model": "gpt-5.4"},
+    "gemini": {"input": 0.075, "output": 0.30, "model": "gemini-3-flash-preview"},
     "copilot": {"input": 1.0, "output": 5.0, "model": "claude-haiku-4.5"},
 }
 
