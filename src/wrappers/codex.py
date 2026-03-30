@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import shlex
 import time
 from pathlib import Path
 
@@ -20,7 +21,7 @@ class CodexWrapper(ToolWrapper):
             cmd = _resolve_cmd("codex")
             if _needs_shell():
                 proc = await asyncio.create_subprocess_shell(
-                    f'"{cmd}" --version',
+                    f'{shlex.quote(cmd)} --version',
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -40,7 +41,7 @@ class CodexWrapper(ToolWrapper):
         cmd = _resolve_cmd("codex")
         if _needs_shell():
             proc = await asyncio.create_subprocess_shell(
-                f'"{cmd}" exec "{prompt}"',
+                f'{shlex.quote(cmd)} exec {shlex.quote(prompt)}',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(cwd),

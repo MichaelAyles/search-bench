@@ -4,7 +4,7 @@ Benchmark comparing RAG-based semantic search vs native agentic search across fo
 
 ## What it measures
 
-Each tool runs against the [CircuitSnips](https://github.com/MichaelAyles/circuitsnips) codebase — a Next.js/TypeScript KiCad circuit-sharing platform — in two modes:
+Each tool runs against the [kicad-library](https://github.com/michaelayles/kicad-library) codebase — a Next.js/TypeScript KiCad circuit-sharing platform — in two modes:
 
 | Mode | How the tool searches |
 |---|---|
@@ -62,7 +62,7 @@ Every tool reviews every other tool's diffs for each task. Verdicts: `APPROVE`, 
 ### Install
 
 ```bash
-git clone https://github.com/MichaelAyles/search-bench
+git clone https://github.com/michaelayles/search-bench
 cd search-bench
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -92,8 +92,8 @@ Each tool needs to be authenticated before running the benchmark. Refer to each 
 ### Index the target codebase
 
 ```bash
-# Clone CircuitSnips
-git clone https://github.com/MichaelAyles/circuitsnips ./benchmark/circuitsnips
+# Clone kicad-library
+git clone https://github.com/michaelayles/kicad-library ./benchmark/circuitsnips
 
 # Build FAISS + SQLite indices (required for RAG mode)
 python scripts/index_codebase.py ./benchmark/circuitsnips
@@ -353,10 +353,10 @@ Estimates computed per-invocation based on token counts reported by each tool (o
 
 | Tool | Model | Input ($/1M) | Output ($/1M) |
 |---|---|---|---|
-| Claude Code | claude-sonnet-4 | $3.00 | $15.00 |
-| Codex CLI | gpt-5.x-codex | $2.50 | $10.00 |
-| Gemini CLI | gemini-2.5-flash | $0.075 | $0.30 |
-| GitHub Copilot | claude-haiku-4.5 (default) | $1.00 | $5.00 |
+| Claude Code | claude-opus-4-5 | $15.00 | $75.00 |
+| Codex CLI | gpt-5.4 | $2.50 | $10.00 |
+| Gemini CLI | gemini-3-flash-preview | $0.075 | $0.30 |
+| GitHub Copilot | claude-haiku-4.5 | $1.00 | $5.00 |
 
 Prices as of 2025. Update `src/wrappers/token_counter.py` to adjust.
 

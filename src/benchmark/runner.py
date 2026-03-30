@@ -16,6 +16,9 @@ from ..wrappers.copilot import CopilotWrapper
 from ..wrappers.token_counter import estimate_cost
 from ..analysis.code_quality import analyze_diff
 from .scorer import score_query
+from .progress import _Progress
+from .mcp_config import MCPConfigManager
+from .retry import _run_with_retry, _tool_with_retry
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -72,158 +75,6 @@ REASON: [one sentence]
 APPROVE = correctly and completely solves the task
 REQUEST_CHANGES = on the right track but has issues
 REJECT = wrong, empty, or doesn't attempt the task"""
-
-
-# ---------------------------------------------------------------------------
-# MCP config manager
-# ---------------------------------------------------------------------------
-
-class MCPConfigManager:
-    """Writes and cleans up per-tool MCP config files for RAG mode."""
-
-    def __init__(self, codebase_dir: Path, db_path: Path, faiss_path: Path):
-        self.codebase_dir = codebase_dir
-        self.db_path = db_path.resolve()
-        self.faiss_path = faiss_path.resolve()
-        self._backups: dict[str, tuple[Path, bytes | None]] = {}
-
-    def _server_entry(self) -> dict:
-        return {
-            "command": sys.executable,
-            "args": [
-                "-m", "src.mcp_server.server",
-                "--db", str(self.db_path),
-                "--faiss", str(self.faiss_path),
-            ],
-            "env": {"PYTHONPATH": str(PROJECT_ROOT)},
-        }
-
-    def setup(self, tool: str, target_dir: Path | None = None) -> None:
-        """Write MCP config for a tool.
-
-        Args:
-            tool: Tool name (claude, codex, gemini, copilot).
-            target_dir: Override directory for config files that live in the
-                codebase (Claude's .mcp.json). If None, uses self.codebase_dir.
-        """
-        cwd = target_dir or self.codebase_dir
-        if tool == "claude":
-            target = cwd / ".mcp.json"
-            self._backup(tool, target)
-            target.write_text(json.dumps(
-                {"mcpServers": {"codebase-rag": self._server_entry()}}, indent=2
-            ))
-
-        elif tool == "codex":
-            codex_dir = Path.home() / ".codex"
-            codex_dir.mkdir(exist_ok=True)
-            target = codex_dir / "config.toml"
-            self._backup(tool, target)
-            srv = self._server_entry()
-            args_str = ", ".join(f'"{a}"' for a in srv["args"])
-            env_str = "\n".join(
-                f'  {k} = "{v}"' for k, v in srv.get("env", {}).items()
-            )
-            env_block = f"\n[mcp.env]\n{env_str}" if env_str else ""
-            target.write_text(
-                f'[[mcp]]\nname = "codebase-rag"\ncommand = "{srv["command"]}"\n'
-                f"args = [{args_str}]\ntransport = \"stdio\"{env_block}\n"
-            )
-
-        elif tool == "gemini":
-            gemini_dir = Path.home() / ".gemini"
-            gemini_dir.mkdir(exist_ok=True)
-            target = gemini_dir / "settings.json"
-            self._backup(tool, target)
-            target.write_text(json.dumps(
-                {"mcpServers": {"codebase-rag": self._server_entry()}}, indent=2
-            ))
-
-        elif tool == "copilot":
-            copilot_dir = Path.home() / ".copilot"
-            copilot_dir.mkdir(exist_ok=True)
-            target = copilot_dir / "mcp-config.json"
-            self._backup(tool, target)
-            target.write_text(json.dumps(
-                {"mcpServers": {"codebase-rag": self._server_entry()}}, indent=2
-            ))
-
-    def teardown(self, tool: str) -> None:
-        if tool not in self._backups:
-            return
-        target, original = self._backups.pop(tool)
-        if original is None:
-            if target.exists():
-                target.unlink()
-        else:
-            target.write_bytes(original)
-
-    def teardown_all(self) -> None:
-        for tool in list(self._backups.keys()):
-            self.teardown(tool)
-
-    def _backup(self, tool: str, path: Path) -> None:
-        self._backups[tool] = (path, path.read_bytes() if path.exists() else None)
-
-
-# ---------------------------------------------------------------------------
-# Progress display
-# ---------------------------------------------------------------------------
-
-class _Progress:
-    """Thread-safe counters with a 2-second periodic table printer."""
-
-    def __init__(self, total: int, tools: list[str], modes: list[str], label: str):
-        self.total = total
-        self.label = label
-        self._lock = asyncio.Lock()
-        self._counts: dict[str, dict] = {
-            f"{t}/{m}": {"done": 0, "err": 0, "tttc": 0.0}
-            for t in tools for m in modes
-        }
-        self._done = 0
-        self._task: asyncio.Task | None = None
-
-    async def record(self, tool: str, mode: str, tttc: float, error: bool) -> None:
-        async with self._lock:
-            self._done += 1
-            key = f"{tool}/{mode}"
-            if key in self._counts:
-                self._counts[key]["done"] += 1
-                self._counts[key]["tttc"] += tttc
-                if error:
-                    self._counts[key]["err"] += 1
-
-    def _render(self) -> str:
-        lines = [f"  {self.label} — {self._done}/{self.total}"]
-        for key, c in sorted(self._counts.items()):
-            if c["done"] == 0:
-                continue
-            avg = c["tttc"] / c["done"]
-            lines.append(
-                f"    {key:<20} {c['done']:>4} done  {c['err']:>2} err  avg {avg:5.1f}s"
-            )
-        return "\n".join(lines)
-
-    async def _printer(self) -> None:
-        prev_lines = 0
-        while True:
-            await asyncio.sleep(2)
-            rendered = self._render()
-            if prev_lines:
-                # Move cursor up and clear to end-of-screen, then redraw
-                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
-            sys.stdout.write(rendered + "\n")
-            sys.stdout.flush()
-            prev_lines = rendered.count("\n") + 1
-
-    def start(self) -> None:
-        self._task = asyncio.ensure_future(self._printer())
-
-    def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            self._task = None
 
 
 # ---------------------------------------------------------------------------
@@ -319,103 +170,6 @@ async def _run_tool_for_task(
         return "", f"unknown tool: {tool_name}"
     wrapper = cls(codebase_dir)
     return await wrapper.run_task(prompt, codebase_dir, timeout=timeout)
-
-
-# ---------------------------------------------------------------------------
-# Retry helpers
-# ---------------------------------------------------------------------------
-
-_RETRYABLE = ("timeout", "429", "rate limit", "rate_limit", "too many", "503", "overloaded", "connection")
-_RATE_LIMIT = ("429", "rate limit", "rate_limit", "too many")
-
-
-async def _run_with_retry(
-    wrapper,
-    query: "Query",
-    mode: "SearchMode",
-    run_number: int,
-    max_retries: int = 3,
-) -> tuple["QueryResult", int, float]:
-    """Run a read-only query with exponential backoff retry.
-
-    Returns (result, retry_count, total_rate_limit_wait_seconds).
-    Only retries on timeout / rate-limit / transient server errors.
-    """
-    delay = 5.0
-    rate_limit_wait = 0.0
-
-    for attempt in range(max_retries + 1):
-        result = await wrapper.run_query(query, mode, run_number)
-
-        if result.error is None:
-            return result, attempt, rate_limit_wait
-
-        if attempt >= max_retries:
-            break
-
-        err_lower = result.error.lower()
-        is_rate_limit = any(x in err_lower for x in _RATE_LIMIT)
-        is_retryable = any(x in err_lower for x in _RETRYABLE)
-
-        if not is_retryable:
-            break
-
-        wait = delay * 2 if is_rate_limit else delay
-        if is_rate_limit:
-            rate_limit_wait += wait
-
-        print(
-            f"\n  [retry {attempt + 1}/{max_retries}] {wrapper.name()} "
-            f"error: {result.error[:60]} — retrying in {wait:.0f}s"
-        )
-        await asyncio.sleep(wait)
-        delay = min(delay * 2, 60.0)
-
-    return result, attempt, rate_limit_wait
-
-
-async def _tool_with_retry(
-    tool_name: str,
-    prompt: str,
-    codebase_dir: "Path",
-    max_retries: int = 3,
-    timeout: int = 180,
-) -> tuple[str, str | None, int, float]:
-    """Run _run_tool_for_task with retries.
-
-    Returns (output, error, retry_count, rate_limit_wait_seconds).
-    """
-    delay = 5.0
-    rate_limit_wait = 0.0
-
-    for attempt in range(max_retries + 1):
-        output, error = await _run_tool_for_task(tool_name, prompt, codebase_dir, timeout)
-
-        if error is None:
-            return output, None, attempt, rate_limit_wait
-
-        if attempt >= max_retries:
-            break
-
-        err_lower = error.lower()
-        is_rate_limit = any(x in err_lower for x in _RATE_LIMIT)
-        is_retryable = any(x in err_lower for x in _RETRYABLE)
-
-        if not is_retryable:
-            break
-
-        wait = delay * 2 if is_rate_limit else delay
-        if is_rate_limit:
-            rate_limit_wait += wait
-
-        print(
-            f"\n  [retry {attempt + 1}/{max_retries}] {tool_name} "
-            f"error: {error[:60]} — retrying in {wait:.0f}s"
-        )
-        await asyncio.sleep(wait)
-        delay = min(delay * 2, 60.0)
-
-    return output, error, attempt, rate_limit_wait
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +429,8 @@ async def _run_author(
                             mcp.setup("claude", target_dir=wt_path)
 
                         _output, error, retry_count, rl_wait = await _tool_with_retry(
-                            tool_name, prompt, wt_path, max_retries=max_retries
+                            tool_name, prompt, wt_path, max_retries=max_retries,
+                            _run_tool_for_task=_run_tool_for_task,
                         )
                         # Diff against HEAD within the worktree
                         _, diff, _ = await _git(["diff", "HEAD"], wt_path)
@@ -822,7 +577,8 @@ async def _run_review(
         async with global_sem:
             async with tool_sems[reviewer_tool]:
                 output, error, retry_count, rl_wait = await _tool_with_retry(
-                    reviewer_tool, prompt, codebase_dir, max_retries=max_retries
+                    reviewer_tool, prompt, codebase_dir, max_retries=max_retries,
+                    _run_tool_for_task=_run_tool_for_task,
                 )
 
         tttc = time.monotonic() - t0

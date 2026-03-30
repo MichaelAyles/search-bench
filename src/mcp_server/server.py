@@ -13,8 +13,11 @@ from .search import HybridSearch
 from .store import Store
 
 
-def create_server(db_path: str, faiss_path: str) -> Server:
-    store = Store(db_path)
+def create_server(store_or_path: "str | Store", faiss_path: str) -> Server:
+    if isinstance(store_or_path, Store):
+        store = store_or_path
+    else:
+        store = Store(store_or_path)
     search = HybridSearch(store, faiss_path=faiss_path)
 
     server = Server("codebase-rag")
@@ -144,9 +147,13 @@ def _format_results(results) -> str:
 
 
 async def run_server(db_path: str, faiss_path: str):
-    server = create_server(db_path, faiss_path)
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    store = Store(db_path)
+    try:
+        server = create_server(store, faiss_path)
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        store.close()
 
 
 def main():

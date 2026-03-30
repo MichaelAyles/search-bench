@@ -1,6 +1,7 @@
 """Code chunking: Tree-sitter AST chunking for supported languages, sliding window fallback."""
 
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 LANG_EXTENSIONS = {
@@ -41,7 +42,7 @@ class Chunk:
 
 def should_skip(path: Path) -> bool:
     for part in path.parts:
-        if part in SKIP_DIRS:
+        if part in SKIP_DIRS or any(fnmatch(part, pat) for pat in SKIP_DIRS if '*' in pat or '?' in pat):
             return True
     if path.name in SKIP_FILES:
         return True

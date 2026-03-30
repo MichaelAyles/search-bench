@@ -1,8 +1,11 @@
 """SQLite metadata store with FTS5 keyword search."""
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -149,6 +152,7 @@ class Store:
             ).fetchall()
             return [ChunkRecord(**dict(r)) for r in rows]
         except Exception:
+            logger.warning("keyword_search failed for query %r: ", query, exc_info=True)
             return []
 
     def symbol_search(self, symbol: str, limit: int = 10) -> list[ChunkRecord]:
