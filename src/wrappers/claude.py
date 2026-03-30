@@ -36,21 +36,25 @@ class ClaudeWrapper(ToolWrapper):
         except FileNotFoundError:
             return False
 
+    async def _exec(self, prompt: str, cwd: Path, timeout: int = 120) -> tuple[bytes, bytes]:
+        """Shared subprocess invocation for Claude CLI."""
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "--print", "--output-format", "json",
+            "--model", "claude-opus-4-5",
+            "-p", prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd),
+            env=_clean_env(),
+        )
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+
     async def run_query(self, query: Query, mode: SearchMode, run_number: int = 1) -> QueryResult:
         prompt = self.get_prompt(query, mode)
         t0 = time.monotonic()
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "claude", "--print", "--output-format", "json",
-                "--model", "claude-opus-4-5",
-                "-p", prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.codebase_dir),
-                env=_clean_env(),
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            stdout, stderr = await self._exec(prompt, self.codebase_dir, timeout=120)
         except asyncio.TimeoutError:
             return QueryResult(
                 tool_name=self.name(),
@@ -76,6 +80,15 @@ class ClaudeWrapper(ToolWrapper):
         raw = stdout.decode("utf-8", errors="replace")
 
         return self._parse_output(raw, query, mode, run_number, tttc)
+
+    async def run_task(self, prompt: str, cwd: Path, timeout: int = 180) -> tuple[str, str | None]:
+        try:
+            stdout, stderr = await self._exec(prompt, cwd, timeout=timeout)
+            return stdout.decode("utf-8", errors="replace"), None
+        except asyncio.TimeoutError:
+            return "", f"Timeout after {timeout}s"
+        except Exception as exc:
+            return "", str(exc)
 
     def _parse_output(
         self, raw: str, query: Query, mode: SearchMode, run_number: int, tttc: float

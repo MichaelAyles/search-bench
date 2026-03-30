@@ -37,15 +37,19 @@ def index_codebase(
         (c.file_path, c.start_line, c.end_line, c.chunk_type, c.symbol_name, c.language, c.content)
         for c in chunks
     ]
-    store.insert_chunks_batch(batch)
+    chunk_ids = store.insert_chunks_batch(batch)
     t_store = time.monotonic()
     print(f"  Stored {len(chunks)} chunks in {t_store - t_chunk:.1f}s")
 
-    # Build FAISS index
+    # Build FAISS index using the actual SQLite IDs (not assumed 1..N)
     print("  Building FAISS index (embedding + indexing)...")
     search = HybridSearch(store)
-    all_records = store.get_chunks_by_ids(list(range(1, len(chunks) + 1)))
-    search.build_index(all_records, save_path=faiss_path)
+    all_records = store.get_chunks_by_ids(chunk_ids)
+    # Ensure the records are in the same order as chunk_ids so the FAISS
+    # row-index-to-SQLite-ID mapping stays aligned.
+    record_by_id = {r.id: r for r in all_records}
+    ordered_records = [record_by_id[cid] for cid in chunk_ids]
+    search.build_index(ordered_records, save_path=faiss_path, chunk_ids=chunk_ids)
     t_faiss = time.monotonic()
     print(f"  Built FAISS index in {t_faiss - t_store:.1f}s")
 

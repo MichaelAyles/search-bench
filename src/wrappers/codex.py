@@ -35,27 +35,31 @@ class CodexWrapper(ToolWrapper):
         except FileNotFoundError:
             return False
 
+    async def _exec(self, prompt: str, cwd: Path, timeout: int = 120) -> tuple[bytes, bytes]:
+        """Shared subprocess invocation for Codex CLI."""
+        cmd = _resolve_cmd("codex")
+        if _needs_shell():
+            proc = await asyncio.create_subprocess_shell(
+                f'"{cmd}" exec "{prompt}"',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                cmd, "exec", prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+            )
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+
     async def run_query(self, query: Query, mode: SearchMode, run_number: int = 1) -> QueryResult:
         prompt = self.get_prompt(query, mode)
         t0 = time.monotonic()
 
         try:
-            cmd = _resolve_cmd("codex")
-            if _needs_shell():
-                proc = await asyncio.create_subprocess_shell(
-                    f'"{cmd}" exec "{prompt}"',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(self.codebase_dir),
-                )
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    cmd, "exec", prompt,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(self.codebase_dir),
-                )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            stdout, stderr = await self._exec(prompt, self.codebase_dir, timeout=120)
         except asyncio.TimeoutError:
             return QueryResult(
                 tool_name=self.name(),
@@ -102,5 +106,14 @@ class CodexWrapper(ToolWrapper):
 
         result.files_returned = _extract_files(result.answer)
         return result
+
+    async def run_task(self, prompt: str, cwd: Path, timeout: int = 180) -> tuple[str, str | None]:
+        try:
+            stdout, stderr = await self._exec(prompt, cwd, timeout=timeout)
+            return stdout.decode("utf-8", errors="replace"), None
+        except asyncio.TimeoutError:
+            return "", f"Timeout after {timeout}s"
+        except Exception as exc:
+            return "", str(exc)
 
 

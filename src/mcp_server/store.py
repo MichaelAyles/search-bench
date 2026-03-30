@@ -93,16 +93,27 @@ class Store:
         return cur.lastrowid
 
     def insert_chunks_batch(self, chunks: list[tuple]) -> list[int]:
-        """Insert multiple chunks. Each tuple: (file_path, start_line, end_line, chunk_type, symbol_name, language, content)."""
-        ids = []
-        for chunk in chunks:
-            cur = self.conn.execute(
-                """INSERT INTO chunks (file_path, start_line, end_line, chunk_type, symbol_name, language, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                chunk,
-            )
-            ids.append(cur.lastrowid)
-        self.conn.commit()
+        """Insert multiple chunks atomically.
+
+        Each tuple: (file_path, start_line, end_line, chunk_type, symbol_name, language, content).
+        Returns a list of the actual SQLite rowids assigned to each chunk, in order.
+        Uses an explicit transaction so a crash mid-batch cannot create partial data
+        that would misalign with a FAISS index built afterwards.
+        """
+        ids: list[int] = []
+        try:
+            self.conn.execute("BEGIN")
+            for chunk in chunks:
+                cur = self.conn.execute(
+                    """INSERT INTO chunks (file_path, start_line, end_line, chunk_type, symbol_name, language, content)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    chunk,
+                )
+                ids.append(cur.lastrowid)
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
         return ids
 
     def get_chunk(self, chunk_id: int) -> ChunkRecord | None:

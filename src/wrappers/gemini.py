@@ -36,36 +36,39 @@ class GeminiWrapper(ToolWrapper):
         except FileNotFoundError:
             return False
 
+    async def _exec(self, prompt: str, cwd: Path, timeout: int = 300) -> tuple[bytes, bytes]:
+        """Shared subprocess invocation for Gemini CLI."""
+        cmd = _resolve_cmd("gemini")
+        env = os.environ.copy()
+        if _needs_shell():
+            proc = await asyncio.create_subprocess_shell(
+                f'"{cmd}" --yolo --output-format json -p ""',
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=env,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                cmd, "--yolo", "--output-format", "json", "-p", "",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=env,
+            )
+        return await asyncio.wait_for(
+            proc.communicate(input=prompt.encode("utf-8")),
+            timeout=timeout,
+        )
+
     async def run_query(self, query: Query, mode: SearchMode, run_number: int = 1) -> QueryResult:
         prompt = self.get_prompt(query, mode)
         t0 = time.monotonic()
 
         try:
-            cmd = _resolve_cmd("gemini")
-            # Pass prompt via stdin with -p "" to enable headless mode; JSON for structured output
-            env = os.environ.copy()
-            if _needs_shell():
-                proc = await asyncio.create_subprocess_shell(
-                    f'"{cmd}" --yolo --output-format json -p ""',
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(self.codebase_dir),
-                    env=env,
-                )
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    cmd, "--yolo", "--output-format", "json", "-p", "",
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(self.codebase_dir),
-                    env=env,
-                )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=prompt.encode("utf-8")),
-                timeout=300,
-            )
+            stdout, stderr = await self._exec(prompt, self.codebase_dir, timeout=300)
         except asyncio.TimeoutError:
             return QueryResult(
                 tool_name=self.name(),
@@ -118,5 +121,14 @@ class GeminiWrapper(ToolWrapper):
         result.tokens_output = tokens_out
         result.files_returned = _extract_files(answer)
         return result
+
+    async def run_task(self, prompt: str, cwd: Path, timeout: int = 180) -> tuple[str, str | None]:
+        try:
+            stdout, stderr = await self._exec(prompt, cwd, timeout=timeout)
+            return stdout.decode("utf-8", errors="replace"), None
+        except asyncio.TimeoutError:
+            return "", f"Timeout after {timeout}s"
+        except Exception as exc:
+            return "", str(exc)
 
 

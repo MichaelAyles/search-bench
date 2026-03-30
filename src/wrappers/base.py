@@ -6,6 +6,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 
@@ -116,17 +117,43 @@ ANSWER: [your detailed answer]"""
 
 
 def _extract_files(text: str) -> list[str]:
-    """Extract file paths mentioned in answer text (FILES: line + path patterns)."""
+    """Extract file paths mentioned in answer text (FILES: line + path patterns).
+
+    Works across arbitrary codebases by matching any path-like string that
+    contains at least one ``/`` and ends with a file extension, while
+    filtering out URLs and other false positives.
+    """
     import re
-    files = set()
+    files: set[str] = set()
+
+    # 1. Parse the explicit FILES: line the prompts request.
     m = re.search(r"FILES:\s*\[?([^\]\n]+)\]?", text)
     if m:
         for f in m.group(1).split(","):
-            f = f.strip().strip("'\"")
+            f = f.strip().strip("'\"` ")
             if f and "/" in f:
                 files.add(f)
-    for m in re.finditer(r"(?:src|lib|app|pages|components)/[\w/.-]+\.\w+", text):
-        files.add(m.group(0))
+
+    # 2. General path pattern: at least one directory component followed by a
+    #    filename with an extension.  Matches things like:
+    #      django/core/handlers/base.py
+    #      packages/react-dom/src/client/ReactDOM.js
+    #      kernel/sched/core.c
+    #      ./src/main.py
+    #    The negative look-behind rejects :// and .com/ so URLs are excluded.
+    path_re = re.compile(
+        r"(?<![:/\w.])"                # not preceded by : / word-char or . (rejects URLs)
+        r"(\.?/?(?:[\w@-]+/)+[\w.-]+\.\w{1,10})"  # optional ./ then dir/…/file.ext
+    )
+    for m in path_re.finditer(text):
+        candidate = m.group(1)
+        # Strip leading ./ for normalization
+        candidate = re.sub(r"^\./", "", candidate)
+        # Skip semver-like fragments (e.g. 2.0/rc1/notes.txt captured oddly)
+        if re.match(r"^\d+\.\d+/", candidate):
+            continue
+        files.add(candidate)
+
     return list(files)
 
 
@@ -153,6 +180,16 @@ class ToolWrapper(ABC):
     @abstractmethod
     async def check_available(self) -> bool:
         """Check if this tool is installed and accessible."""
+        ...
+
+    @abstractmethod
+    async def run_task(self, prompt: str, cwd: Path, timeout: int = 180) -> tuple[str, str | None]:
+        """Run the tool with a free-form prompt for modification/review tasks.
+
+        Returns (stdout_text, error_or_None).  Subclasses reuse the same
+        subprocess flags they use in ``run_query`` so there is only one place
+        to update when CLI flags change.
+        """
         ...
 
     def get_prompt(self, query: Query, mode: SearchMode) -> str:

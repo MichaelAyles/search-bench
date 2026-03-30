@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..wrappers.base import Query, QueryResult, SearchMode, _resolve_cmd
+from ..wrappers.base import Query, QueryResult, SearchMode
 from ..wrappers.claude import ClaudeWrapper
 from ..wrappers.codex import CodexWrapper
 from ..wrappers.gemini import GeminiWrapper
@@ -309,61 +309,16 @@ async def _run_tool_for_task(
     codebase_dir: Path,
     timeout: int = 180,
 ) -> tuple[str, str | None]:
-    """Run tool with a modification prompt. Returns (stdout_text, error_or_None)."""
-    try:
-        if tool_name == "claude":
-            import os
-            env = os.environ.copy()
-            env.pop("CLAUDECODE", None)
-            proc = await asyncio.create_subprocess_exec(
-                "claude", "--print", "--output-format", "json", "-p", prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(codebase_dir),
-                env=env,
-            )
-        elif tool_name == "codex":
-            cmd = _resolve_cmd("codex")
-            proc = await asyncio.create_subprocess_exec(
-                cmd, "exec", prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(codebase_dir),
-            )
-        elif tool_name == "gemini":
-            cmd = _resolve_cmd("gemini")
-            proc = await asyncio.create_subprocess_exec(
-                cmd, "--yolo", "-p", "",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(codebase_dir),
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=prompt.encode("utf-8")), timeout=timeout
-            )
-            return stdout.decode("utf-8", errors="replace"), None
-        elif tool_name == "copilot":
-            cmd = _resolve_cmd("copilot")
-            proc = await asyncio.create_subprocess_exec(
-                cmd, "-p", prompt,
-                "--allow-all-tools",
-                "--no-auto-update",
-                "-s",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(codebase_dir),
-            )
-        else:
-            return "", f"unknown tool: {tool_name}"
+    """Run tool with a modification prompt. Returns (stdout_text, error_or_None).
 
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return stdout.decode("utf-8", errors="replace"), None
-
-    except asyncio.TimeoutError:
-        return "", f"Timeout after {timeout}s"
-    except Exception as exc:
-        return "", str(exc)
+    Delegates to the wrapper's ``run_task`` method so subprocess flags are
+    defined in exactly one place (the wrapper class).
+    """
+    cls = TOOL_CLASSES.get(tool_name)
+    if cls is None:
+        return "", f"unknown tool: {tool_name}"
+    wrapper = cls(codebase_dir)
+    return await wrapper.run_task(prompt, codebase_dir, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 """Hybrid search: FAISS semantic + SQLite FTS5 keyword search."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,13 +22,27 @@ class HybridSearch:
         self.faiss_index = None
         self.model = None
         self._faiss_path = Path(faiss_path) if faiss_path else None
+        # Maps FAISS row index -> SQLite chunk ID.
+        # Populated at index-build time and persisted alongside the FAISS index.
+        self._id_map: list[int] = []
 
         if self._faiss_path and self._faiss_path.exists():
             self._load_faiss()
 
+    @staticmethod
+    def _id_map_path(faiss_path: Path) -> Path:
+        """Return the path to the ID-map sidecar file for a given FAISS index."""
+        return faiss_path.parent / (faiss_path.name + ".idmap.json")
+
     def _load_faiss(self):
         import faiss
         self.faiss_index = faiss.read_index(str(self._faiss_path))
+        idmap_path = self._id_map_path(self._faiss_path)
+        if idmap_path.exists():
+            self._id_map = json.loads(idmap_path.read_text())
+        else:
+            # Legacy index without an ID map — fall back to 1-based assumption.
+            self._id_map = list(range(1, self.faiss_index.ntotal + 1))
 
     def _get_model(self):
         if self.model is None:
@@ -39,8 +54,21 @@ class HybridSearch:
         model = self._get_model()
         return model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
 
-    def build_index(self, chunks: list[ChunkRecord], save_path: str | Path | None = None):
-        """Build FAISS index from chunk records."""
+    def build_index(
+        self,
+        chunks: list[ChunkRecord],
+        save_path: str | Path | None = None,
+        chunk_ids: list[int] | None = None,
+    ):
+        """Build FAISS index from chunk records.
+
+        Args:
+            chunks: The chunk records to index.
+            save_path: Where to write the FAISS index file.
+            chunk_ids: The actual SQLite row IDs corresponding to each chunk,
+                       in the same order as *chunks*. If not provided, falls
+                       back to reading ``c.id`` from each ChunkRecord.
+        """
         import faiss
 
         texts = [c.content for c in chunks]
@@ -51,9 +79,19 @@ class HybridSearch:
         index.add(embeddings.astype(np.float32))
 
         self.faiss_index = index
+
+        # Build the FAISS-row -> SQLite-ID mapping
+        if chunk_ids is not None:
+            self._id_map = list(chunk_ids)
+        else:
+            self._id_map = [c.id for c in chunks]
+
         if save_path:
+            save_path = Path(save_path)
             faiss.write_index(index, str(save_path))
-            self._faiss_path = Path(save_path)
+            self._faiss_path = save_path
+            # Persist the ID map as a sidecar JSON file
+            self._id_map_path(save_path).write_text(json.dumps(self._id_map))
 
     def semantic_search(
         self, query: str, top_k: int = 10, file_filter: str | None = None
@@ -71,7 +109,12 @@ class HybridSearch:
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1:
                 continue
-            chunk = self.store.get_chunk(int(idx) + 1)  # SQLite IDs are 1-based
+            faiss_row = int(idx)
+            if self._id_map and faiss_row < len(self._id_map):
+                chunk_id = self._id_map[faiss_row]
+            else:
+                chunk_id = faiss_row + 1  # legacy fallback
+            chunk = self.store.get_chunk(chunk_id)
             if chunk is None:
                 continue
             if file_filter and not _glob_match(chunk.file_path, file_filter):
