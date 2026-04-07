@@ -57,7 +57,7 @@ Analysis Pipeline (stats, charts, report)
 
 **`src/mcp_server/`** — RAG MCP server exposed over stdio
 
-- `server.py` — Exposes three MCP tools: `semantic_search`, `symbol_lookup`, `related_code`
+- `server.py` — Exposes three MCP tools: `semantic_search`, `symbol_lookup`, `related_code`; structured call logger via `--log` flag (JSONL with timing, result counts, files returned per call)
 - `indexer.py` — Walks a codebase, chunks files, builds FAISS + SQLite FTS5 indices; entry point for `index-codebase`
 - `chunker.py` — Tree-sitter AST chunking for Python/TS/JS; sliding window (40 lines, 10 overlap) for everything else; skips build artifacts and files >512KB
 - `search.py` — `HybridSearch` class combining FAISS (`all-MiniLM-L6-v2` embeddings) with SQLite FTS5 (Porter stemming)
@@ -66,15 +66,15 @@ Analysis Pipeline (stats, charts, report)
 **`src/wrappers/`** — Per-tool CLI wrappers
 
 - `base.py` — Shared types (`SearchMode`, `Query`, `SearchOp`, `QueryResult`), `ToolWrapper` ABC, `_extract_files()` shared helper, NATIVE vs RAG prompt templates
-- `claude.py` — Runs `claude --print --output-format json --model claude-opus-4-5`; parses nested tool-use messages for files accessed; 120s timeout
+- `claude.py` — Runs `claude --print --output-format json --model claude-haiku-4-5`; parses JSON result with usage/token data; 120s timeout
 - `codex.py` — Runs `codex exec` (default model: `gpt-5.4`); parses JSON output for tokens/answer; 120s timeout
 - `gemini.py` — Runs `gemini --yolo --output-format json -p ""` with prompt via stdin; parses JSON `response` field + token counts from `stats.models`; passes `env=os.environ.copy()` for auth; 300s timeout (rate limits cause internal retries)
-- `copilot.py` — Runs `copilot -p --output-format json --allow-all-tools` (server-side model: `claude-haiku-4.5`); parses JSONL event stream for messages, tool uses, and file accesses; 120s timeout
+- `copilot.py` — Runs `copilot -p --output-format json --allow-all-tools --model claude-haiku-4.5`; parses JSONL event stream for messages, tool uses (including MCP-namespaced tools), and file accesses; 120s timeout
 - `token_counter.py` — Token estimation with tiktoken; pricing table for all four tools
 
 **`src/benchmark/`** — Orchestration
 
-- `runner.py` — Main orchestrator and `search-bench` CLI entry point; handles all three phases, checkpoint/resume (`--retry-errors` to re-run only failed checkpoints), per-tool semaphores (each tool runs sequentially), exponential backoff retry (`_run_with_retry`, `_tool_with_retry`), MCP config injection (`MCPConfigManager`), git worktree isolation for author tasks, ANSI progress display, and report generation
+- `runner.py` — Main orchestrator and `search-bench` CLI entry point; handles all three phases, checkpoint/resume (`--retry-errors` to re-run only failed checkpoints), per-tool semaphores (each tool runs sequentially), exponential backoff retry (`_run_with_retry`, `_tool_with_retry`), MCP config injection (`MCPConfigManager`) with per-call logging, git worktree isolation for author tasks, ANSI progress display, timestamped output dirs (`results/YYYY-MM-DD_HHMMSS/` with `latest` symlink), and report generation. Transcripts saved by default (`--no-transcripts` to opt out)
 - `scorer.py` — File recall/precision/F1 scoring with fuzzy path matching (normalize, suffix, basename fallback)
 
 **`src/analysis/`** — Post-run analysis
@@ -97,20 +97,21 @@ Analysis Pipeline (stats, charts, report)
 
 | Tool | Model | Input $/M | Output $/M | Avg query time |
 |------|-------|-----------|------------|----------------|
-| Claude Code | `claude-opus-4-5` (explicit `--model`) | $15.00 | $75.00 | ~40s |
+| Claude Code | `claude-haiku-4-5` (explicit `--model`) | $1.00 | $5.00 | ~47s |
 | Codex CLI | `gpt-5.4` (CLI default) | $2.50 | $10.00 | ~70s |
 | Gemini CLI | `gemini-3-flash-preview` + `gemini-2.5-flash-lite` router (CLI default with `previewFeatures: true`) | $0.075 | $0.30 | ~200s (rate limited) |
-| GitHub Copilot | `claude-haiku-4.5` (server-side) | $1.00 | $5.00 | ~50s |
+| GitHub Copilot | `claude-haiku-4.5` (explicit `--model`) | $1.00 | $5.00 | ~57s |
 
 ## Key design details
 
 - **Author phase uses git worktrees** for isolation — each tool runs in `results/worktrees/{tool}_{mode}_{task}`, preventing concurrent checkout races. Stale worktrees from crashed runs are cleaned up automatically.
 - **MCP config injection** writes tool-specific config files before RAG runs: `.mcp.json` for Claude (in worktree dir for author), `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.copilot/mcp-config.json`. Originals are backed up and restored.
 - **Retry logic** uses exponential backoff for transient errors (timeouts, 429s, rate limits, 503s). Controlled via `--max-retries`.
-- **Checkpoint/resume** — each query result is saved as a JSON file in `results/`. Re-running skips completed results. Use `--retry-errors` to re-run only errored results while keeping successful ones.
+- **Checkpoint/resume** — each query result is saved as a JSON file in the timestamped output dir. Re-running with `--output-dir` pointing to an existing run skips completed results. Use `--retry-errors` to re-run only errored results while keeping successful ones.
 - **All four tools** participate in all three benchmark phases (read-only, author, review).
 - The target codebase is `michaelayles/kicad-library`, cloned to `./benchmark/circuitsnips`.
 - FAISS index and SQLite DB paths default to `./data/circuitsnips.{db,faiss}`.
+- **MCP call logging** — when running RAG mode, the MCP server logs each tool call (timing, arguments, result count, files returned) to a temp JSONL file. The runner reads this after each query and attaches it to the checkpoint as `mcp_calls`.
 
 ## Gemini CLI gotchas
 

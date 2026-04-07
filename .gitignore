@@ -11,17 +11,24 @@ build/
 
 # Project-specific
 plan.md
-blog/
 data/*.faiss
 data/*.db
+data/*.idmap.json
+data/*.faiss.idmap.json
+results/*/
 results/*.json
 !results/summary.json
 results/*.html
 results/*.png
+results/*.md
 results/worktrees/
+results/latest
+results/charts/
+results_backup_*/
 diffs/*.diff
 .env
 /benchmark/
+.claude/
 
 # IDE
 .vscode/
