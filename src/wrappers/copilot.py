@@ -8,9 +8,13 @@ from pathlib import Path
 from .base import ToolWrapper, Query, QueryResult, SearchMode, SearchOp, _resolve_cmd, _extract_files
 
 
+DEFAULT_MODEL = "claude-haiku-4.5"
+
+
 class CopilotWrapper(ToolWrapper):
-    def __init__(self, codebase_dir: str | Path):
+    def __init__(self, codebase_dir: str | Path, model: str = DEFAULT_MODEL):
         self.codebase_dir = Path(codebase_dir)
+        self.model = model
 
     def name(self) -> str:
         return "copilot"
@@ -37,6 +41,7 @@ class CopilotWrapper(ToolWrapper):
             "--output-format", "json",
             "--allow-all-tools",
             "--no-auto-update",
+            "--model", self.model,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
@@ -122,26 +127,39 @@ class CopilotWrapper(ToolWrapper):
                 output_tokens += data.get("outputTokens", 0)
 
                 # Parse tool requests from the message
+                # Copilot uses "name"/"arguments", not "toolName"/"input"
                 for tr in data.get("toolRequests", []):
-                    tool_name = tr.get("toolName", "unknown")
-                    tool_input = tr.get("input", {})
+                    tool_name = tr.get("name", tr.get("toolName", "unknown"))
+                    tool_args = tr.get("arguments", tr.get("input", {}))
                     op = SearchOp(
                         type=tool_name,
-                        query=json.dumps(tool_input)[:200],
+                        query=json.dumps(tool_args)[:200],
                         results=0,
                         token_cost=0,
                     )
                     search_ops.append(op)
-                    # Extract file paths from tool inputs
                     for key in ("file_path", "path", "file", "filePath"):
-                        if key in tool_input:
-                            files_accessed.append(tool_input[key])
+                        if key in tool_args:
+                            files_accessed.append(tool_args[key])
 
-            elif event_type == "tool.result":
+            elif event_type == "tool.execution_start":
                 tool_name = data.get("toolName", "")
-                # Track files from tool results
-                if tool_name in ("read", "Read") and "filePath" in data:
-                    files_accessed.append(data["filePath"])
+                args = data.get("arguments", {})
+                # Extract file paths from tool arguments
+                for key in ("file_path", "path", "file", "filePath"):
+                    if key in args:
+                        files_accessed.append(args[key])
+
+            elif event_type == "tool.execution_complete":
+                tool_name = data.get("toolName", "")
+                # Track files from view/read results
+                if tool_name in ("read", "Read", "view"):
+                    res = data.get("result", {})
+                    tel = data.get("toolTelemetry", {}).get("properties", {})
+                    # toolTelemetry sometimes has the file extension/path info
+                    for key in ("filePath", "path"):
+                        if key in res:
+                            files_accessed.append(res[key])
 
             elif event_type == "result":
                 # Final summary event with usage stats
@@ -154,13 +172,19 @@ class CopilotWrapper(ToolWrapper):
         result.files_accessed = list(set(files_accessed))
         result.rounds = len(search_ops)
         result.tokens_output = output_tokens
+
+        # Normalise tool names: copilot namespaces MCP tools as
+        # "codebase-rag-semantic_search" etc. Strip the server prefix.
+        _search_types = {"grep", "glob", "Grep", "Glob",
+                         "semantic_search", "codebase-rag-semantic_search"}
+        _read_types = {"read", "Read", "view",
+                       "codebase-rag-symbol_lookup", "symbol_lookup",
+                       "codebase-rag-related_code", "related_code"}
         result.time_searching = sum(
-            s.duration_seconds for s in search_ops
-            if s.type in ("Grep", "Glob", "grep", "glob")
+            s.duration_seconds for s in search_ops if s.type in _search_types
         )
         result.time_reading = sum(
-            s.duration_seconds for s in search_ops
-            if s.type in ("Read", "read")
+            s.duration_seconds for s in search_ops if s.type in _read_types
         )
         result.files_returned = _extract_files(result.answer)
         return result

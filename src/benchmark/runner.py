@@ -216,76 +216,82 @@ async def _run_read_only(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mcp = MCPConfigManager(codebase_dir, db_path, faiss_path)
-    if "rag" in modes:
-        for tool in tools:
-            mcp.setup(tool)
-
     wrappers = {name: TOOL_CLASSES[name](codebase_dir) for name in tools}
     tool_sems = {name: asyncio.Semaphore(1) for name in tools}
     global_sem = asyncio.Semaphore(concurrency)
 
-    # Build work list
-    work = []
+    total_planned = len(queries) * len(tools) * len(modes) * runs
     skipped = 0
-    for query in queries:
-        for tool_name in tools:
-            for mode in modes:
+
+    # Run native and RAG in separate phases
+    for phase_mode in modes:
+        if phase_mode == "rag":
+            # Set up MCP before RAG phase
+            for tool in tools:
+                mcp.setup(tool)
+
+        # Build work list for this phase
+        work = []
+        for query in queries:
+            for tool_name in tools:
                 for run_num in range(1, runs + 1):
-                    cp = _ro_checkpoint(output_dir, tool_name, mode, query.id, run_num)
+                    cp = _ro_checkpoint(output_dir, tool_name, phase_mode, query.id, run_num)
                     if resume and cp.exists():
                         if retry_errors and _checkpoint_has_error(cp):
                             pass  # fall through to re-run
                         else:
                             skipped += 1
-                        continue
-                    work.append((query, tool_name, mode, run_num, cp))
+                            continue
+                    work.append((query, tool_name, phase_mode, run_num, cp))
 
-    total_planned = len(queries) * len(tools) * len(modes) * runs
-    print(f"\nRead-only: {total_planned} total ({skipped} cached, {len(work)} to run)")
+        phase_name = f"Read-only ({phase_mode})"
+        print(f"\n{phase_name}: {len(work)} to run")
 
-    prog = _Progress(len(work), tools, modes, "read-only")
-    prog.start()
+        prog = _Progress(len(work), tools, [phase_mode], phase_name)
+        prog.start()
 
-    async def _run_one(query: Query, tool_name: str, mode_str: str, run_num: int, cp: Path) -> None:
-        wrapper = wrappers[tool_name]
-        mode = SearchMode(mode_str)
+        async def _run_one(query: Query, tool_name: str, mode_str: str, run_num: int, cp: Path) -> None:
+            wrapper = wrappers[tool_name]
+            mode = SearchMode(mode_str)
 
-        async with global_sem:
-            async with tool_sems[tool_name]:
-                result, retry_count, rl_wait = await _run_with_retry(
-                    wrapper, query, mode, run_num, max_retries=max_retries
-                )
+            async with global_sem:
+                async with tool_sems[tool_name]:
+                    result, retry_count, rl_wait = await _run_with_retry(
+                        wrapper, query, mode, run_num, max_retries=max_retries
+                    )
 
-        result.run_meta = {
-            "tool_name": tool_name,
-            "mode": mode_str,
-            "success": result.error is None,
-            "retry_count": retry_count,
-            "rate_limit_wait_seconds": rl_wait,
-            "failure_reason": result.error or "",
-        }
+            result.run_meta = {
+                "tool_name": tool_name,
+                "mode": mode_str,
+                "success": result.error is None,
+                "retry_count": retry_count,
+                "rate_limit_wait_seconds": rl_wait,
+                "failure_reason": result.error or "",
+            }
 
-        score = score_query(result, query)
-        data = result.to_dict()
-        data["score"] = score
-        if save_transcripts and result.raw_transcript:
-            data["raw_transcript"] = result.raw_transcript
-        _save_json(cp, data)
+            score = score_query(result, query)
+            data = result.to_dict()
+            data["score"] = score
+            if save_transcripts and result.raw_transcript:
+                data["raw_transcript"] = result.raw_transcript
+            if mode_str == "rag":
+                data["mcp_calls"] = mcp.read_log()
+                mcp.clear_log()
+            _save_json(cp, data)
 
-        await prog.record(tool_name, mode_str, result.tttc_seconds, error=result.error is not None)
+            await prog.record(tool_name, mode_str, result.tttc_seconds, error=result.error is not None)
 
-    raw = await asyncio.gather(*[_run_one(*args) for args in work], return_exceptions=True)
-    exc_count = sum(1 for r in raw if isinstance(r, BaseException))
-    if exc_count:
-        print(f"\n  [warn] {exc_count} tasks raised unhandled exceptions (check logs)")
+        raw = await asyncio.gather(*[_run_one(*args) for args in work], return_exceptions=True)
+        exc_count = sum(1 for r in raw if isinstance(r, BaseException))
+        if exc_count:
+            print(f"\n  [warn] {exc_count} tasks raised unhandled exceptions (check logs)")
 
-    prog.stop()
-    print(prog._render())
-    mcp.teardown_all()
+        prog.stop()
+        print(prog._render())
 
-    total_errors = sum(c["err"] for c in prog._counts.values())
-    if total_errors:
-        print(f"\n  {total_errors}/{len(work)} runs had errors")
+        if phase_mode == "rag":
+            # Tear down MCP after RAG phase
+            mcp.teardown_all()
 
     return _collect_ro_checkpoints(output_dir, tools, modes, queries, runs)
 
@@ -781,8 +787,8 @@ def _parse_args() -> argparse.Namespace:
                         help="Runs per query (default: 3)")
     parser.add_argument("--concurrency", type=int, default=4,
                         help="Max concurrent tool invocations (default: 4)")
-    parser.add_argument("--output-dir", type=Path, default=Path("./results"),
-                        help="Results directory (default: ./results)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="Results directory (default: ./results/<timestamp>)")
     parser.add_argument("--queries", type=Path, default=Path("queries/queries.json"),
                         help="Query file (default: queries/queries.json)")
     parser.add_argument("--tasks", type=Path, default=Path("tasks/tasks.json"),
@@ -801,8 +807,8 @@ def _parse_args() -> argparse.Namespace:
                         help="FAISS index path for MCP server")
     parser.add_argument("--max-retries", type=int, default=3,
                         help="Max retries on transient errors per invocation (default: 3)")
-    parser.add_argument("--save-transcripts", action="store_true",
-                        help="Include raw tool output in read-only checkpoint files")
+    parser.add_argument("--no-transcripts", action="store_true",
+                        help="Omit raw tool output from read-only checkpoint files")
     return parser.parse_args()
 
 
@@ -838,7 +844,14 @@ async def _async_main(args: argparse.Namespace) -> None:
         print(f"Codebase not found: {codebase_dir}", file=sys.stderr)
         sys.exit(1)
 
-    output_dir = args.output_dir.resolve()
+    # Auto-create timestamped output directory under results/
+    if args.output_dir is None:
+        results_root = (PROJECT_ROOT / "results").resolve()
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        output_dir = results_root / timestamp
+    else:
+        output_dir = args.output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
     db_path = args.db.resolve() if args.db.is_absolute() else (PROJECT_ROOT / args.db).resolve()
     faiss_path = args.faiss.resolve() if args.faiss.is_absolute() else (PROJECT_ROOT / args.faiss).resolve()
 
@@ -901,7 +914,7 @@ async def _async_main(args: argparse.Namespace) -> None:
             concurrency=args.concurrency,
             resume=args.resume,
             max_retries=args.max_retries,
-            save_transcripts=args.save_transcripts,
+            save_transcripts=not args.no_transcripts,
             retry_errors=args.retry_errors,
         )
         if ro_scores:
@@ -980,6 +993,12 @@ async def _async_main(args: argparse.Namespace) -> None:
 
     print("\nGenerating reports...")
     _generate_reports(results_path, output_dir)
+
+    # Update latest symlink if using auto-timestamped directory
+    if args.output_dir is None:
+        latest_link = output_dir.parent / "latest"
+        latest_link.unlink(missing_ok=True)
+        latest_link.symlink_to(output_dir.name)
 
     elapsed = time.monotonic() - t_start
     print(f"\nDone in {elapsed:.0f}s. Results in {output_dir}/")

@@ -36,12 +36,18 @@ class ClaudeWrapper(ToolWrapper):
         except FileNotFoundError:
             return False
 
-    async def _exec(self, prompt: str, cwd: Path, timeout: int = 120) -> tuple[bytes, bytes]:
+    async def _exec(self, prompt: str, cwd: Path, timeout: int = 120,
+                     allowed_tools: list[str] | None = None) -> tuple[bytes, bytes]:
         """Shared subprocess invocation for Claude CLI."""
-        proc = await asyncio.create_subprocess_exec(
+        cmd = [
             "claude", "--print", "--output-format", "json",
-            "--model", "claude-opus-4-5",
-            "-p", prompt,
+            "--model", "claude-haiku-4-5",
+        ]
+        if allowed_tools:
+            cmd += ["--allowedTools"] + allowed_tools
+        cmd += ["-p", prompt]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
@@ -49,12 +55,20 @@ class ClaudeWrapper(ToolWrapper):
         )
         return await asyncio.wait_for(proc.communicate(), timeout=timeout)
 
+    MCP_TOOLS = [
+        "mcp__codebase-rag__semantic_search",
+        "mcp__codebase-rag__symbol_lookup",
+        "mcp__codebase-rag__related_code",
+    ]
+
     async def run_query(self, query: Query, mode: SearchMode, run_number: int = 1) -> QueryResult:
         prompt = self.get_prompt(query, mode)
         t0 = time.monotonic()
+        allowed = self.MCP_TOOLS if mode == SearchMode.RAG else None
 
         try:
-            stdout, stderr = await self._exec(prompt, self.codebase_dir, timeout=120)
+            stdout, stderr = await self._exec(prompt, self.codebase_dir, timeout=120,
+                                              allowed_tools=allowed)
         except asyncio.TimeoutError:
             return QueryResult(
                 tool_name=self.name(),
@@ -113,15 +127,24 @@ class ClaudeWrapper(ToolWrapper):
         # Handle claude --print JSON output format
         if isinstance(data, dict):
             result.answer = data.get("result", data.get("text", raw))
-            result.tokens_input = data.get("input_tokens", 0)
-            result.tokens_output = data.get("output_tokens", 0)
 
-            # Parse tool uses from the conversation
+            # Token counts live under "usage" in --output-format json
+            usage = data.get("usage", {})
+            result.tokens_input = (
+                usage.get("input_tokens", 0)
+                + usage.get("cache_creation_input_tokens", 0)
+                + usage.get("cache_read_input_tokens", 0)
+            )
+            result.tokens_output = usage.get("output_tokens", 0)
+
+            # Additional metadata from top-level fields
+            result.rounds = data.get("num_turns", 0)
+
+            # Parse tool uses from the conversation (if messages present)
             messages = data.get("messages", [])
-            search_ops, files_accessed, rounds = _parse_tool_uses(messages)
+            search_ops, files_accessed, _ = _parse_tool_uses(messages)
             result.search_ops = search_ops
             result.files_accessed = files_accessed
-            result.rounds = rounds
             result.time_searching = sum(
                 s.duration_seconds for s in search_ops if s.type in ("Grep", "Glob")
             )

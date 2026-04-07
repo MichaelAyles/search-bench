@@ -2,8 +2,11 @@
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -11,6 +14,27 @@ from mcp.types import TextContent, Tool
 
 from .search import HybridSearch
 from .store import Store
+
+
+def _log(msg: str):
+    """Log to stderr with timestamp for debugging."""
+    print(f"[{datetime.now().isoformat()}] {msg}", file=sys.stderr, flush=True)
+
+
+# Structured call log: each tool call appends a JSON line.
+# Path set via MCP_LOG_PATH env var or --log CLI arg; disabled if unset.
+_LOG_PATH: str | None = os.environ.get("MCP_LOG_PATH")
+
+
+def _log_call(entry: dict) -> None:
+    """Append a JSON line to the structured log file."""
+    if not _LOG_PATH:
+        return
+    try:
+        with open(_LOG_PATH, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
 
 
 def create_server(store_or_path: "str | Store", faiss_path: str) -> Server:
@@ -90,26 +114,28 @@ def create_server(store_or_path: "str | Store", faiss_path: str) -> Server:
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        query_key = arguments.get("query", arguments.get("symbol", arguments.get("file_path", "?")))
+        _log(f"Tool call: {name} with query={query_key}")
+        t0 = time.monotonic()
+
         if name == "semantic_search":
             results = search.hybrid_search(
                 query=arguments["query"],
                 top_k=arguments.get("top_k", 10),
                 file_filter=arguments.get("file_filter"),
             )
-            return [TextContent(
-                type="text",
-                text=_format_results(results),
-            )]
+            output_text = _format_results(results)
+            n_results = len(results)
+            _log(f"  semantic_search returned {n_results} results")
 
         elif name == "symbol_lookup":
             results = search.symbol_lookup(
                 symbol=arguments["symbol"],
                 limit=10,
             )
-            return [TextContent(
-                type="text",
-                text=_format_results(results),
-            )]
+            output_text = _format_results(results)
+            n_results = len(results)
+            _log(f"  symbol_lookup returned {n_results} results")
 
         elif name == "related_code":
             results = search.related_code(
@@ -118,13 +144,28 @@ def create_server(store_or_path: "str | Store", faiss_path: str) -> Server:
                 end_line=arguments.get("end_line"),
                 top_k=arguments.get("top_k", 5),
             )
-            return [TextContent(
-                type="text",
-                text=_format_results(results),
-            )]
+            output_text = _format_results(results)
+            n_results = len(results)
+            _log(f"  related_code returned {n_results} results")
 
         else:
+            _log(f"  Unknown tool: {name}")
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+        elapsed = time.monotonic() - t0
+        files_returned = list({r.chunk.file_path for r in results}) if results else []
+
+        _log_call({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool": name,
+            "arguments": arguments,
+            "duration_seconds": round(elapsed, 4),
+            "num_results": n_results,
+            "output_chars": len(output_text),
+            "files_returned": files_returned,
+        })
+
+        return [TextContent(type="text", text=output_text)]
 
     return server
 
@@ -157,12 +198,17 @@ async def run_server(db_path: str, faiss_path: str):
 
 
 def main():
+    global _LOG_PATH
     parser = argparse.ArgumentParser(description="RAG MCP Server")
     parser.add_argument("--db", required=True, help="SQLite database path")
     parser.add_argument("--faiss", required=True, help="FAISS index path")
+    parser.add_argument("--log", help="Path for structured call log (JSONL)")
     parser.add_argument("--index-only", action="store_true", help="Only index, don't start server")
     parser.add_argument("--codebase", help="Codebase path (for --index-only)")
     args = parser.parse_args()
+
+    if args.log:
+        _LOG_PATH = args.log
 
     if args.index_only:
         if not args.codebase:

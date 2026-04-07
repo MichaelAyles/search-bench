@@ -126,11 +126,27 @@ def _extract_files(text: str) -> list[str]:
     import re
     files: set[str] = set()
 
+    def _clean(p: str) -> str:
+        p = p.strip().strip("'\"` ")
+        p = re.sub(r"^[*`]+\s*", "", p)
+        p = re.sub(r"[*`]+$", "", p)
+        if p.startswith("[") and "]" not in p.split("/")[0]:
+            p = p[1:]
+        if p.endswith("]") and "[" not in p.split("/")[-1]:
+            p = p[:-1]
+        p = re.sub(r"^\./", "", p)
+        return p.strip()
+
     # 1. Parse the explicit FILES: line the prompts request.
-    m = re.search(r"FILES:\s*\[?([^\]\n]+)\]?", text)
+    m = re.search(r"FILES:\s*(.*?)$", text, re.MULTILINE)
     if m:
-        for f in m.group(1).split(","):
-            f = f.strip().strip("'\"` ")
+        raw = m.group(1).strip()
+        if raw.startswith("["):
+            raw = raw[1:]
+        if raw.endswith("]"):
+            raw = raw[:-1]
+        for f in raw.split(","):
+            f = _clean(f)
             if f and "/" in f:
                 files.add(f)
 
@@ -140,19 +156,18 @@ def _extract_files(text: str) -> list[str]:
     #      packages/react-dom/src/client/ReactDOM.js
     #      kernel/sched/core.c
     #      ./src/main.py
+    #      src/app/api/schematic/[filename]/route.ts
     #    The negative look-behind rejects :// and .com/ so URLs are excluded.
     path_re = re.compile(
         r"(?<![:/\w.])"                # not preceded by : / word-char or . (rejects URLs)
-        r"(\.?/?(?:[\w@-]+/)+[\w.-]+\.\w{1,10})"  # optional ./ then dir/…/file.ext
+        r"(\.?/?(?:[\w@\[\]-]+/)+[\w.\[\]-]+\.\w{1,10})"  # optional ./ then dir/…/file.ext
     )
     for m in path_re.finditer(text):
-        candidate = m.group(1)
-        # Strip leading ./ for normalization
-        candidate = re.sub(r"^\./", "", candidate)
-        # Skip semver-like fragments (e.g. 2.0/rc1/notes.txt captured oddly)
+        candidate = _clean(m.group(1))
         if re.match(r"^\d+\.\d+/", candidate):
             continue
-        files.add(candidate)
+        if candidate:
+            files.add(candidate)
 
     return list(files)
 
